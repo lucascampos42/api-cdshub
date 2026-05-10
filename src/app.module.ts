@@ -16,6 +16,8 @@ import { PoliciesGuard } from './casl/policies.guard';
 import { SuggestionsModule } from './suggestions/suggestions.module';
 import { SystemsModule } from './systems/systems.module';
 import { SessionsModule } from './auth/sessions/sessions.module';
+import { CompaniesModule } from './companies/companies.module';
+import { ClientsModule } from './clients/clients.module';
 
 @Module({
   imports: [
@@ -41,6 +43,8 @@ import { SessionsModule } from './auth/sessions/sessions.module';
     SuggestionsModule,
     SystemsModule,
     SessionsModule,
+    CompaniesModule,
+    ClientsModule,
   ],
   controllers: [],
   providers: [
