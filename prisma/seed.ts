@@ -79,34 +79,10 @@ async function main() {
   console.log('');
 
   // --- Cadastro de Sistemas ---
-  console.log('📦 Cadastrando sistemas padrão...');
-  const systems = [
-    {
-      slug: 'cds-gestor',
-      name: 'CDS Gestor',
-      description: 'Sistema completo de gestão ERP',
-    },
-    {
-      slug: 'bot-whatsapp',
-      name: 'Bot WhatsApp',
-      description: 'Automação de atendimento via WhatsApp',
-    },
-    {
-      slug: 'calculadora-xml',
-      name: 'Calculadora XML',
-      description: 'Ferramenta de análise e cálculo de arquivos XML',
-    },
-  ];
-
-  for (const system of systems) {
-    await prisma.system.upsert({
-      where: { slug: system.slug },
-      update: system,
-      create: system,
-    });
-  }
-  console.log('✅ Sistemas cadastrados');
-  console.log('');
+  // console.log('📦 Cadastrando sistemas padrão...');
+  // O modelo System não existe no schema.prisma atual, o campo é string no Suggestion.
+  // console.log('✅ Sistemas cadastrados');
+  // console.log('');
 }
 
 main()

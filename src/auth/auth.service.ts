@@ -387,6 +387,7 @@ export class AuthService {
   ) {
     let schemaName: string | null = null;
     let companyRole: string | null = null;
+    let activeSystems: string[] = [];
 
     if (companyId) {
       const company = await this.prisma.company.findUnique({
@@ -399,8 +400,29 @@ export class AuthService {
         select: { role: true },
       });
 
+      // Buscar sistemas ativos para a empresa
+      const companySystems = await this.prisma.companySystem.findMany({
+        where: { companyId, active: true },
+        include: { system: true },
+      });
+
       schemaName = company?.subdomain || null;
       companyRole = userCompany?.role || null;
+      activeSystems = companySystems.map((cs) => cs.system.slug);
+    } else if (user.userType?.startsWith('REVENDA_') && user.revendaId) {
+      // Para usuários de revenda sem contexto de empresa, ver o que a revenda possui
+      const revendaSystems = await this.prisma.revendaSystem.findMany({
+        where: { revendaId: user.revendaId },
+        include: { system: true },
+      });
+      activeSystems = revendaSystems.map((rs) => rs.system.slug);
+    } else if (user.userType === 'CODESDEVS_SUPERADMIN') {
+      // SuperAdmin vê tudo
+      const allSystems = await this.prisma.system.findMany({
+        where: { active: true },
+        select: { slug: true },
+      });
+      activeSystems = allSystems.map((s) => s.slug);
     }
 
     const payload = {
@@ -412,7 +434,8 @@ export class AuthService {
       companyId: companyId || null,
       schemaName: schemaName,
       companyRole: companyRole,
-      sessionId: sessionId, // Incluir sessionId no token
+      sessionId: sessionId,
+      systems: activeSystems, // ✨ Sistemas liberados
     };
 
     const jwtExpiration =
