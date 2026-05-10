@@ -12,6 +12,7 @@ import { UserContextService } from './common/context/user-context.service';
 import { UserContextInterceptor } from './common/context/user-context.interceptor';
 import { CaslModule } from './casl/casl.module';
 import { PoliciesGuard } from './casl/policies.guard';
+import { SuggestionsModule } from './suggestions/suggestions.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { PoliciesGuard } from './casl/policies.guard';
     RevendasModule,
     HealthModule,
     CaslModule,
+    SuggestionsModule,
   ],
   controllers: [],
   providers: [

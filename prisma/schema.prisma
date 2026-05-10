@@ -294,6 +294,8 @@ model Client {
   currentCompanyId   String?  @map("current_company_id") // ✨ Empresa atualmente selecionada
   userType           UserType @default(CLIENTE_FUNCIONARIO) @map("user_type")
   hashedRefreshToken String?  @map("hashed_refresh_token")
+  twoFactorSecret    String?  @map("two_factor_secret")
+  isTwoFactorEnabled Boolean  @default(false) @map("is_two_factor_enabled")
 
   logs            Log[]
   revenda         Revenda?           @relation(fields: [revendaId], references: [id])
@@ -301,6 +303,7 @@ model Client {
   companies       UserCompany[]      // ✨ Empresas que o usuário tem acesso
   assignedTickets TicketAssignment[]
   createdTickets  Ticket[]           @relation("TicketCreator")
+  suggestions     Suggestion[]       @relation("SuggestionCreator")
 
   @@index([revendaId])
   @@map("users")
@@ -423,4 +426,33 @@ enum UserType {
   CLIENTE_GERENTE
   CLIENTE_FUNCIONARIO
   CLIENTE_CONTADOR
+}
+
+model Suggestion {
+  id          String   @id @default(uuid())
+  title       String
+  description String   @db.Text
+  system      String   // Ex: "CDS Gestor", "Calculadora de XML"
+  status      SuggestionStatus @default(ABERTO)
+  votes       Int      @default(0)
+  createdById String?  @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy   User?    @relation("SuggestionCreator", fields: [createdById], references: [id])
+
+  @@map("suggestions")
+}
+
+enum SuggestionStatus {
+  ABERTO
+  EM_ANALISE
+  EM_DUPLICIDADE
+  EM_DESENVOLVIMENTO
+  CANCELADO
+  NAO_APROVADO
+  APROVADO
+  EM_TESTES
+  CONCLUIDO
+  DISPONIBILIZADO
 }

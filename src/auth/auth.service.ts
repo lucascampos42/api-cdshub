@@ -11,6 +11,8 @@ import { ChangePasswordDto } from './dto/change-password.dto';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
 import { SessionsService } from './sessions/sessions.service';
+import { generateSecret, generateURI, verify } from 'otplib';
+import * as qrcode from 'qrcode';
 
 @Injectable()
 export class AuthService {
@@ -38,6 +40,42 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
+    // Se o 2FA estiver ativado, não retornamos os tokens agora
+    if (user.isTwoFactorEnabled) {
+      // Gerar um token temporário curto (5 min) para identificar o usuário no passo 2
+      const tempToken = await this.jwtService.signAsync(
+        { sub: user.id, type: '2fa_pending' },
+        { expiresIn: '5m' },
+      );
+
+      return {
+        requires2FA: true,
+        tempToken,
+      };
+    }
+
+    return this.generateAuthResponse(user, ip, userAgent);
+  }
+
+  async verify2FA(userId: string, code: string, ip: string, userAgent: string) {
+    const user = await this.usersService.findOne(userId);
+    if (!user || !user.twoFactorSecret || !user.isTwoFactorEnabled) {
+      throw new UnauthorizedException('2FA não configurado para este usuário');
+    }
+
+    const result = await verify({
+      token: code,
+      secret: user.twoFactorSecret,
+    });
+
+    if (!result.valid) {
+      throw new UnauthorizedException('Código 2FA inválido');
+    }
+
+    return this.generateAuthResponse(user, ip, userAgent);
+  }
+
+  private async generateAuthResponse(user: any, ip: string, userAgent: string) {
     let companies: any[] = [];
     let currentCompany: any = null;
     let currentCompanyId: string | null = null;
@@ -77,7 +115,6 @@ export class AuthService {
         : null;
     }
 
-    // Criar sessão no Redis
     const sessionId = await this.sessionsService.createSession(user.id, ip, userAgent);
 
     const tokens = await this.getTokens(
@@ -103,6 +140,55 @@ export class AuthService {
       companies,
       currentCompany,
     };
+  }
+
+  async generate2FASecret(userId: string) {
+    const user = await this.usersService.findOne(userId);
+    if (!user) throw new UnauthorizedException();
+
+    const secret = generateSecret();
+    const otpauthUrl = generateURI({
+      issuer: 'CodesDevs Gestor',
+      label: user.email,
+      secret: secret,
+    });
+
+    // Salva o segredo temporariamente (ainda não ativado)
+    await this.usersService.update(userId, { twoFactorSecret: secret });
+
+    const qrCodeDataUrl = await qrcode.toDataURL(otpauthUrl);
+
+    return {
+      secret,
+      qrCodeDataUrl,
+    };
+  }
+
+  async turnOn2FA(userId: string, code: string) {
+    const user = await this.usersService.findOne(userId);
+    if (!user || !user.twoFactorSecret) {
+      throw new UnauthorizedException('Segredo 2FA não gerado');
+    }
+
+    const result = await verify({
+      token: code,
+      secret: user.twoFactorSecret,
+    });
+
+    if (!result.valid) {
+      throw new UnauthorizedException('Código 2FA inválido');
+    }
+
+    await this.usersService.update(userId, { isTwoFactorEnabled: true });
+    return { message: '2FA ativado com sucesso' };
+  }
+
+  async turnOff2FA(userId: string) {
+    await this.usersService.update(userId, {
+      isTwoFactorEnabled: false,
+      twoFactorSecret: null,
+    });
+    return { message: '2FA desativado com sucesso' };
   }
 
   async logout(userId: string, sessionId?: string) {
