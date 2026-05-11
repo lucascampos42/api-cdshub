@@ -192,7 +192,6 @@ model Client {
   client        Client?       @relation(fields: [clientId], references: [id])
   userCompanies UserCompany[] // ✨ Usuários com acesso a esta empresa
   contracts     Contract[]
-  tickets       Ticket[]
   systems       CompanySystem[] // ✨ Sistemas ativos para esta empresa
 
   @@unique([revendaId, subdomain])
@@ -252,7 +251,6 @@ model Client {
   erpInstances ErpInstance[]
   users        User[]
   contracts    Contract[]
-  tickets      Ticket[]
   systems      RevendaSystem[] // ✨ Sistemas que a revenda pode comercializar
 
   @@map("revendas")
@@ -303,10 +301,7 @@ model Client {
   revenda         Revenda?           @relation(fields: [revendaId], references: [id])
   ownedCompanies  Company[]          @relation("CompanyOwner")
   companies       UserCompany[]      // ✨ Empresas que o usuário tem acesso
-  assignedTickets TicketAssignment[]
-  createdTickets  Ticket[]           @relation("TicketCreator")
-  suggestions     Suggestion[]       @relation("SuggestionCreator")
-  ticketActions   TicketAction[]
+  suggestions     Suggestion[]       // ✨ Sugestões do usuário
 
   @@index([revendaId])
   @@map("users")
@@ -329,82 +324,6 @@ model Client {
   @@index([companyId])
   @@map("user_companies")
   }
-
-  model Ticket {
-  id          String   @id @default(uuid())
-  revendaId   String   @map("revenda_id")
-  companyId   String   @map("company_id")
-  title       String
-  description String   @db.Text
-  status      TicketStatus @default(AGUARDANDO_ATENDIMENTO)
-  priority    TicketPriority @default(MEDIA)
-  category    String?
-  isVisit     Boolean  @default(false) @map("is_visit")
-  createdById String   @map("created_by_id")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  closedAt    DateTime? @map("closed_at")
-  scheduledFor DateTime? @map("scheduled_for")
-
-  revenda     Revenda  @relation(fields: [revendaId], references: [id])
-  company     Company  @relation(fields: [companyId], references: [id])
-  createdBy   User     @relation("TicketCreator", fields: [createdById], references: [id])
-  assignments TicketAssignment[]
-  actions     TicketAction[]
-
-  @@index([revendaId])
-  @@index([companyId])
-  @@index([createdById])
-  @@map("tickets")
-  }
-
-  model TicketAction {
-  id        String   @id @default(uuid())
-  ticketId  String   @map("ticket_id")
-  userId    String   @map("user_id")
-  content   String   @db.Text
-  createdAt DateTime @default(now()) @map("created_at")
-
-  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id])
-
-  @@index([ticketId])
-  @@index([userId])
-  @@map("ticket_actions")
-  }
-
-  model TicketAssignment {
-  id        String   @id @default(uuid())
-  ticketId  String   @map("ticket_id")
-  userId    String   @map("user_id")
-  isPrimary Boolean  @default(false) @map("is_primary")
-  assignedAt DateTime @default(now()) @map("assigned_at")
-
-  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id])
-
-  @@unique([ticketId, userId])
-  @@index([ticketId])
-  @@index([userId])
-  @@map("ticket_assignments")
-  }
-
-
-enum TicketStatus {
-  AGUARDANDO_ATENDIMENTO
-  AGENDADO
-  EM_EXECUCAO
-  IMPLANTACAO
-  CONCLUIDO
-  CANCELADO
-}
-
-enum TicketPriority {
-  BAIXA
-  MEDIA
-  ALTA
-  URGENTE
-}
 
 model BlogPost {
   id        String   @id @default(uuid())
@@ -459,7 +378,7 @@ model Suggestion {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  createdBy   User?    @relation("SuggestionCreator", fields: [createdById], references: [id])
+  createdBy   User?    @relation(fields: [createdById], references: [id])
 
   @@map("suggestions")
 }
