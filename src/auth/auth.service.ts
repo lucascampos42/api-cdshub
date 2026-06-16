@@ -338,10 +338,15 @@ export class AuthService {
       expiresIn: jwtExpiration,
     } as any);
 
+    const refreshTokenSecret = this.configService.get<string>(
+      'REFRESH_TOKEN_SECRET',
+    );
+    if (!refreshTokenSecret) {
+      throw new Error('REFRESH_TOKEN_SECRET environment variable is not defined');
+    }
+
     const refreshToken = await this.jwtService.signAsync(payload, {
-      secret:
-        this.configService.get<string>('REFRESH_TOKEN_SECRET') ||
-        'refresh-secret-key-change-me',
+      secret: refreshTokenSecret,
       expiresIn: jwtRefreshExpiration,
     } as any);
 

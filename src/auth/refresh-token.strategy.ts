@@ -9,14 +9,18 @@ export class RefreshTokenStrategy extends PassportStrategy(
   'jwt-refresh',
 ) {
   constructor() {
+    const secret = process.env.REFRESH_TOKEN_SECRET;
+    if (!secret) {
+      throw new Error('REFRESH_TOKEN_SECRET environment variable is not defined');
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromExtractors([
         (request: Request) => {
           return request?.cookies?.refresh_token;
         },
       ]),
-      secretOrKey:
-        process.env.REFRESH_TOKEN_SECRET || 'refresh-secret-key-change-me',
+      secretOrKey: secret,
       passReqToCallback: true,
     });
   }

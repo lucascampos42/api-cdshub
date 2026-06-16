@@ -1,3 +1,7 @@
+if (!process.env.JWT_SECRET) {
+  throw new Error('JWT_SECRET environment variable is not defined');
+}
+
 export const jwtConstants = {
-  secret: process.env.JWT_SECRET || 'DO_NOT_USE_THIS_VALUE_IN_PRODUCTION',
+  secret: process.env.JWT_SECRET,
 };
