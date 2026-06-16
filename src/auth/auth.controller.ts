@@ -36,7 +36,10 @@ export class AuthController {
     @Body() loginDto: LoginDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const ip = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress || 'unknown';
+    const ip =
+      (req.headers['x-forwarded-for'] as string) ||
+      req.socket.remoteAddress ||
+      'unknown';
     const userAgent = req.headers['user-agent'] || 'unknown';
 
     const { access_token, refresh_token, user, companies, currentCompany } =
@@ -83,7 +86,11 @@ export class AuthController {
     const refreshToken = req.user['refreshToken'];
     const sessionId = req.user['sessionId'];
 
-    const tokens = await this.authService.refreshTokens(userId, refreshToken, sessionId);
+    const tokens = await this.authService.refreshTokens(
+      userId,
+      refreshToken,
+      sessionId,
+    );
 
     const isProduction = process.env.NODE_ENV === 'production';
 
@@ -117,7 +124,7 @@ export class AuthController {
   async logout(@Req() req, @Res({ passthrough: true }) res: Response) {
     const userId = req.user['userId'];
     const sessionId = req.user['sessionId'];
-    
+
     await this.authService.logout(userId, sessionId);
 
     const isProduction = process.env.NODE_ENV === 'production';

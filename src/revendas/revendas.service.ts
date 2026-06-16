@@ -1,4 +1,9 @@
-import { Injectable, Logger, ConflictException, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  ConflictException,
+  InternalServerErrorException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateRevendaDto } from './dto/create-revenda.dto';
 import { ConfigService } from '@nestjs/config';
@@ -28,21 +33,30 @@ export class RevendasService {
 
       if (provisionNow !== false) {
         try {
-          this.logger.log(`Adicionando job de provisionamento para ${schemaName} na fila.`);
+          this.logger.log(
+            `Adicionando job de provisionamento para ${schemaName} na fila.`,
+          );
           await this.provisioningQueue.add('provision', { schemaName });
         } catch (error) {
-          this.logger.error(`Erro ao enfileirar provisionamento: ${(error as any).message}`);
+          this.logger.error(
+            `Erro ao enfileirar provisionamento: ${(error as any).message}`,
+          );
           // Não deletamos a revenda aqui, pois o job pode ser retentado ou disparado manualmente depois
         }
       }
 
       return revenda;
     } catch (error) {
-      if (error instanceof ConflictException || error instanceof InternalServerErrorException) {
+      if (
+        error instanceof ConflictException ||
+        error instanceof InternalServerErrorException
+      ) {
         throw error;
       }
       if ((error as any).code === 'P2002') {
-        throw new ConflictException('Revenda com este domínio ou documento já existe.');
+        throw new ConflictException(
+          'Revenda com este domínio ou documento já existe.',
+        );
       }
       throw new InternalServerErrorException('Erro ao criar revenda');
     }

@@ -78,7 +78,11 @@ export class AuthService {
     }
 
     // Criar sessão no Redis
-    const sessionId = await this.sessionsService.createSession(user.id, ip, userAgent);
+    const sessionId = await this.sessionsService.createSession(
+      user.id,
+      ip,
+      userAgent,
+    );
 
     const tokens = await this.getTokens(
       user.id,
@@ -247,7 +251,13 @@ export class AuthService {
 
     await this.usersService.update(userId, { currentCompanyId: companyId });
 
-    const tokens = await this.getTokens(user.id, user.email, user, companyId, sessionId);
+    const tokens = await this.getTokens(
+      user.id,
+      user.email,
+      user,
+      companyId,
+      sessionId,
+    );
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return {
@@ -261,7 +271,11 @@ export class AuthService {
     };
   }
 
-  async refreshTokens(userId: string, refreshToken: string, sessionId?: string) {
+  async refreshTokens(
+    userId: string,
+    refreshToken: string,
+    sessionId?: string,
+  ) {
     const user = await this.usersService.findOne(userId);
     if (!user || !user.hashedRefreshToken)
       throw new ForbiddenException('Acesso negado');
@@ -275,11 +289,20 @@ export class AuthService {
 
     // Se tiver sessionId, validar no Redis
     if (sessionId) {
-      const isValid = await this.sessionsService.isSessionValid(userId, sessionId);
+      const isValid = await this.sessionsService.isSessionValid(
+        userId,
+        sessionId,
+      );
       if (!isValid) throw new ForbiddenException('Sessão expirada ou revogada');
     }
 
-    const tokens = await this.getTokens(user.id, user.email, user, user.currentCompanyId, sessionId);
+    const tokens = await this.getTokens(
+      user.id,
+      user.email,
+      user,
+      user.currentCompanyId,
+      sessionId,
+    );
     await this.updateRefreshToken(user.id, tokens.refreshToken);
 
     return tokens;

@@ -1,4 +1,9 @@
-import { Injectable, OnModuleInit, OnModuleDestroy, Logger } from '@nestjs/common';
+import {
+  Injectable,
+  OnModuleInit,
+  OnModuleDestroy,
+  Logger,
+} from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 import { Pool } from 'pg';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -18,7 +23,10 @@ export class PrismaService
 
     super({
       adapter,
-      log: process.env.NODE_ENV === 'development' ? ['query', 'info', 'warn', 'error'] : ['error'],
+      log:
+        process.env.NODE_ENV === 'development'
+          ? ['query', 'info', 'warn', 'error']
+          : ['error'],
     });
 
     // Adicionar Extensão de Auditoria
@@ -61,7 +69,9 @@ export class PrismaService
           },
         });
       } catch (error) {
-        this.logger.error(`Erro ao gravar log de auditoria: ${(error as any).message}`);
+        this.logger.error(
+          `Erro ao gravar log de auditoria: ${(error as any).message}`,
+        );
       }
     }
   }

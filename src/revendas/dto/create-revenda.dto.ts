@@ -62,5 +62,3 @@ export class CreateRevendaDto {
   @IsOptional()
   provisionNow?: boolean = true;
 }
-
-

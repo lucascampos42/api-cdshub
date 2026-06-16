@@ -13,21 +13,29 @@ export class ProvisioningProcessor extends WorkerHost {
 
   async process(job: Job<{ schemaName: string }>): Promise<any> {
     const { schemaName } = job.data;
-    this.logger.log(`Processando provisionamento assíncrono para: ${schemaName}`);
+    this.logger.log(
+      `Processando provisionamento assíncrono para: ${schemaName}`,
+    );
 
     try {
       await this.callRevendaProvisioning(schemaName);
-      this.logger.log(`Provisionamento concluído com sucesso para: ${schemaName}`);
+      this.logger.log(
+        `Provisionamento concluído com sucesso para: ${schemaName}`,
+      );
       return { success: true };
     } catch (error) {
-      this.logger.error(`Falha ao processar job de provisionamento: ${(error as any).message}`);
+      this.logger.error(
+        `Falha ao processar job de provisionamento: ${(error as any).message}`,
+      );
       throw error; // Lançar erro permite que o BullMQ tente novamente conforme configurado
     }
   }
 
   private async callRevendaProvisioning(schemaName: string) {
     const revendaApiUrl = this.configService.get<string>('REVENDA_API_URL');
-    const internalApiKey = this.configService.get<string>('REVENDA_API_KEY') || this.configService.get<string>('INTERNAL_API_KEY');
+    const internalApiKey =
+      this.configService.get<string>('REVENDA_API_KEY') ||
+      this.configService.get<string>('INTERNAL_API_KEY');
 
     if (!revendaApiUrl) {
       throw new Error('REVENDA_API_URL não configurada no api-flow');
@@ -43,7 +51,9 @@ export class ProvisioningProcessor extends WorkerHost {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ message: 'Erro desconhecido na API de Revenda' }));
+      const errorData = await response
+        .json()
+        .catch(() => ({ message: 'Erro desconhecido na API de Revenda' }));
       throw new Error(errorData.message || `HTTP ${response.status}`);
     }
 

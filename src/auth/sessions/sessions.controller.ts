@@ -26,7 +26,9 @@ export class SessionsController {
   }
 
   @Delete()
-  @ApiOperation({ summary: 'Revogar todas as sessões do usuário (Logout Global)' })
+  @ApiOperation({
+    summary: 'Revogar todas as sessões do usuário (Logout Global)',
+  })
   async revokeAll(@Req() req) {
     const userId = req.user.sub;
     await this.sessionsService.revokeAllSessions(userId);

@@ -32,7 +32,9 @@ export class PoliciesGuard implements CanActivate {
     );
 
     if (!isAllowed) {
-      throw new ForbiddenException('Acesso negado: Regras de política não atendidas');
+      throw new ForbiddenException(
+        'Acesso negado: Regras de política não atendidas',
+      );
     }
 
     return true;

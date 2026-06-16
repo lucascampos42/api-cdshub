@@ -8,7 +8,6 @@ import { UsersModule } from './users/users.module';
 import { RevendasModule } from './revendas/revendas.module';
 import { HealthModule } from './health/health.module';
 import { ScopedApiKeyGuard } from './auth/guards/scoped-api-key.guard';
-import { UserContextService } from './common/context/user-context.service';
 import { UserContextInterceptor } from './common/context/user-context.interceptor';
 import { CaslModule } from './casl/casl.module';
 import { PoliciesGuard } from './casl/policies.guard';

@@ -23,7 +23,11 @@ export class SessionsService {
     });
   }
 
-  async createSession(userId: string, ip: string, userAgent: string): Promise<string> {
+  async createSession(
+    userId: string,
+    ip: string,
+    userAgent: string,
+  ): Promise<string> {
     const sessionId = uuidv4();
     const sessionData: SessionData = {
       id: sessionId,
@@ -34,8 +38,8 @@ export class SessionsService {
     };
 
     // TTL de 7 dias (mesmo do Refresh Token)
-    const ttl = 7 * 24 * 60 * 60; 
-    
+    const ttl = 7 * 24 * 60 * 60;
+
     await this.redis.set(
       `session:${userId}:${sessionId}`,
       JSON.stringify(sessionData),
@@ -52,9 +56,7 @@ export class SessionsService {
     if (keys.length === 0) return [];
 
     const sessions = await this.redis.mget(...keys);
-    return sessions
-      .filter((s): s is string => !!s)
-      .map((s) => JSON.parse(s));
+    return sessions.filter((s): s is string => !!s).map((s) => JSON.parse(s));
   }
 
   async revokeSession(userId: string, sessionId: string): Promise<void> {
