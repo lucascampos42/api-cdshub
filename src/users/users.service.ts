@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import * as bcrypt from 'bcrypt';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class UsersService {
@@ -10,11 +11,12 @@ export class UsersService {
   private generatePassword(length = 12): string {
     const charset =
       'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()_+';
-    let retVal = '';
-    for (let i = 0, n = charset.length; i < length; ++i) {
-      retVal += charset.charAt(Math.floor(Math.random() * n));
+    const n = charset.length;
+    const result = new Array(length);
+    for (let i = 0; i < length; i++) {
+      result[i] = charset.charAt(crypto.randomInt(n));
     }
-    return retVal;
+    return result.join('');
   }
 
   async create(createUserDto: CreateUserDto) {
