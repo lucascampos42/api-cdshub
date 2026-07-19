@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -10,8 +10,8 @@ pub struct Company {
     pub client_id: Option<String>,
     pub subdomain: Option<String>,
     pub active: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub schema_name: Option<String>,
     pub parent_company_id: Option<String>,
     pub parent_revenda_id: Option<String>,

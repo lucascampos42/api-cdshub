@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -13,8 +13,8 @@ pub struct Ticket {
     pub priority: String,
     pub category: Option<String>,
     pub created_by_id: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub closed_at: Option<NaiveDateTime>,
     pub scheduled_for: Option<NaiveDateTime>,
 }
@@ -26,7 +26,7 @@ pub struct TicketAssignment {
     pub ticket_id: String,
     pub user_id: String,
     pub is_primary: bool,
-    pub assigned_at: DateTime<Utc>,
+    pub assigned_at: NaiveDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
@@ -35,7 +35,7 @@ pub struct TicketAction {
     pub ticket_id: String,
     pub user_id: String,
     pub content: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -49,8 +49,8 @@ pub struct TicketWithDetails {
     pub priority: String,
     pub category: Option<String>,
     pub created_by_id: String,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub closed_at: Option<NaiveDateTime>,
     pub scheduled_for: Option<NaiveDateTime>,
     pub company: Option<serde_json::Value>,

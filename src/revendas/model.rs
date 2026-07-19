@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -8,8 +8,8 @@ pub struct Revenda {
     pub name: String,
     pub domain: String,
     pub active: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub city: Option<String>,
     pub complement: Option<String>,
     pub document: String,
@@ -26,7 +26,7 @@ pub struct RevendaSystem {
     pub id: String,
     pub revenda_id: String,
     pub system_slug: String,
-    pub created_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]

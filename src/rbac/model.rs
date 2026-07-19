@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use sqlx::FromRow;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -19,6 +19,6 @@ pub struct AccessRule {
     pub can_write: bool,
     pub can_update: bool,
     pub can_delete: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }

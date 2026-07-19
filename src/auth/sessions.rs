@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 
@@ -8,8 +8,8 @@ pub struct Session {
     pub user_id: String,
     pub ip: Option<String>,
     pub user_agent: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub expires_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub expires_at: NaiveDateTime,
 }
 
 pub struct SessionService {
@@ -28,7 +28,7 @@ impl SessionService {
         user_agent: Option<&str>,
         expires_in_days: i64,
     ) -> Result<Session, sqlx::Error> {
-        let expires_at = Utc::now() + chrono::Duration::days(expires_in_days);
+        let expires_at = (Utc::now() + chrono::Duration::days(expires_in_days)).naive_utc();
 
         let row = sqlx::query_as::<_, Session>(
             r#"

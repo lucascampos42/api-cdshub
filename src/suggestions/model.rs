@@ -1,6 +1,6 @@
 use std::str::FromStr;
 
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -13,8 +13,8 @@ pub struct Suggestion {
     pub status: String,
     pub votes: i32,
     pub created_by_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 #[derive(Debug, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
@@ -77,8 +77,8 @@ pub struct SuggestionResponse {
     pub status: SuggestionStatus,
     pub votes: i32,
     pub created_by_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
 }
 
 impl From<Suggestion> for SuggestionResponse {

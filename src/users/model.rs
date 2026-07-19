@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
@@ -14,8 +14,8 @@ pub struct User {
     pub role: String,
     pub revenda_id: Option<String>,
     pub active: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub must_change_password: bool,
     pub cpf: Option<String>,
     pub username: String,
@@ -58,8 +58,8 @@ pub struct UserResponse {
     pub role: String,
     pub revenda_id: Option<String>,
     pub active: bool,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
     pub must_change_password: bool,
     pub cpf: Option<String>,
     pub username: String,
