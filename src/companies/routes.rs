@@ -1,6 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
+use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
 use crate::errors::AppError;
@@ -9,6 +10,11 @@ use crate::rbac::service::check_permission;
 use super::model::{CreateCompanyRequest, UpdateCompanyRequest};
 use super::service::CompanyService;
 use crate::AppState;
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRevendaPayload {
+    pub revenda_id: Option<String>,
+}
 
 #[utoipa::path(
     post,
@@ -136,4 +142,101 @@ pub async fn delete_company(
     service.soft_delete(&id).await?;
 
     Ok(StatusCode::OK)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/companies/{id}/enable-demo",
+    tag = "Companies",
+    params(
+        ("id" = String, Path, description = "Company ID")
+    ),
+    responses(
+        (status = 200, description = "Demo mode enabled"),
+        (status = 404, description = "Company not found"),
+    )
+)]
+pub async fn enable_demo(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Update, "Company").await?;
+
+    let service = CompanyService::new(state.pool.clone());
+    let company = service.set_demo_mode(&id, true).await?;
+
+    Ok(Json(serde_json::to_value(company).unwrap()))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/companies/{id}/disable-demo",
+    tag = "Companies",
+    params(
+        ("id" = String, Path, description = "Company ID")
+    ),
+    responses(
+        (status = 200, description = "Demo mode disabled"),
+        (status = 404, description = "Company not found"),
+    )
+)]
+pub async fn disable_demo(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Update, "Company").await?;
+
+    let service = CompanyService::new(state.pool.clone());
+    let company = service.set_demo_mode(&id, false).await?;
+
+    Ok(Json(serde_json::to_value(company).unwrap()))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/companies/{id}/revenda",
+    tag = "Companies",
+    params(
+        ("id" = String, Path, description = "Company ID")
+    ),
+    request_body = UpdateRevendaPayload,
+    responses(
+        (status = 200, description = "Revenda updated"),
+        (status = 404, description = "Company not found"),
+    )
+)]
+pub async fn update_company_revenda(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateRevendaPayload>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Update, "Company").await?;
+
+    let revenda_id = payload.revenda_id.as_deref()
+        .map(|id| id.parse::<uuid::Uuid>())
+        .transpose()
+        .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
+
+    let company = sqlx::query_as::<_, crate::companies::model::Company>(
+        r#"
+        UPDATE companies
+        SET revenda_id = $2, updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
+                  schema_name, parent_company_id, parent_revenda_id, db_connection_string,
+                  email, phone, document, document_type,
+                  zip_code, street, number, complement, neighborhood, city, state
+        "#,
+    )
+    .bind(id.parse::<uuid::Uuid>().map_err(|_| AppError::bad_request("Invalid company ID"))?)
+    .bind(revenda_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+    .ok_or_else(|| AppError::not_found("Company not found"))?;
+
+    Ok(Json(serde_json::to_value(company).unwrap()))
 }

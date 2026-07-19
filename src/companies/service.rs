@@ -232,4 +232,28 @@ impl CompanyService {
     pub async fn soft_delete(&self, id: &str) -> Result<(), AppError> {
         self.delete(id).await
     }
+
+    pub async fn set_demo_mode(&self, id: &str, enabled: bool) -> Result<Company, AppError> {
+        let company_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid company ID"))?;
+
+        let company = sqlx::query_as::<_, Company>(
+            r#"
+            UPDATE companies
+            SET is_demo_mode = $2, updated_at = NOW()
+            WHERE id = $1
+            RETURNING id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
+                      schema_name, parent_company_id, parent_revenda_id, db_connection_string,
+                      email, phone, document, document_type,
+                      zip_code, street, number, complement, neighborhood, city, state
+            "#,
+        )
+        .bind(company_uuid)
+        .bind(enabled)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| AppError::not_found("Company not found"))?;
+
+        Ok(company)
+    }
 }

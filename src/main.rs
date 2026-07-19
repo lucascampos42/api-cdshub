@@ -17,6 +17,7 @@ mod rbac;
 mod revendas;
 mod suggestions;
 mod systems;
+mod tickets;
 mod users;
 
 #[derive(Clone)]
@@ -76,11 +77,15 @@ async fn main() {
         .route("/api/companies/:id", get(companies::routes::get_company))
         .route("/api/companies/:id", patch(companies::routes::update_company))
         .route("/api/companies/:id", delete(companies::routes::delete_company))
+        .route("/api/companies/:id/enable-demo", patch(companies::routes::enable_demo))
+        .route("/api/companies/:id/disable-demo", patch(companies::routes::disable_demo))
+        .route("/api/companies/:id/revenda", patch(companies::routes::update_company_revenda))
         .route("/api/clients", post(clients::routes::create_client))
         .route("/api/clients", get(clients::routes::list_clients))
         .route("/api/clients/:id", get(clients::routes::get_client))
         .route("/api/clients/:id", patch(clients::routes::update_client))
         .route("/api/clients/:id", delete(clients::routes::delete_client))
+        .route("/api/clients/:id/revenda", patch(clients::routes::update_client_revenda))
         .route("/api/revendas", post(revendas::routes::create_revenda))
         .route("/api/revendas", get(revendas::routes::list_revendas))
         .route("/api/revendas/:id", get(revendas::routes::get_revenda))
@@ -94,6 +99,14 @@ async fn main() {
         .route("/api/systems/company/:companyId", get(systems::routes::find_by_company))
         .route("/api/suggestions", post(suggestions::routes::create_suggestion))
         .route("/api/suggestions/:id/status", patch(suggestions::routes::update_suggestion_status))
+        .route("/api/tickets", get(tickets::routes::list_tickets))
+        .route("/api/tickets", post(tickets::routes::create_ticket))
+        .route("/api/tickets/stats", get(tickets::routes::get_stats))
+        .route("/api/tickets/:id", get(tickets::routes::get_ticket))
+        .route("/api/tickets/:id", patch(tickets::routes::update_ticket))
+        .route("/api/tickets/:id", delete(tickets::routes::delete_ticket))
+        .route("/api/tickets/:ticketId/actions", get(tickets::routes::get_actions))
+        .route("/api/tickets/:ticketId/actions", post(tickets::routes::add_action))
         .layer(axum_middleware::from_fn(auth::middleware::auth_middleware));
 
     let app = Router::new()

@@ -1,6 +1,7 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
+use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
 use crate::errors::AppError;
@@ -9,6 +10,11 @@ use crate::rbac::service::check_permission;
 use super::model::{CreateClientRequest, UpdateClientRequest};
 use super::service::ClientService;
 use crate::AppState;
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateRevendaPayload {
+    pub revenda_id: Option<String>,
+}
 
 #[utoipa::path(
     post,
@@ -148,4 +154,52 @@ pub async fn delete_client(
     service.delete(&id).await?;
 
     Ok(StatusCode::OK)
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/clients/{id}/revenda",
+    tag = "Clients",
+    params(
+        ("id" = String, Path, description = "Client ID")
+    ),
+    request_body = UpdateRevendaPayload,
+    responses(
+        (status = 200, description = "Revenda updated"),
+        (status = 404, description = "Client not found"),
+    )
+)]
+pub async fn update_client_revenda(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(payload): Json<UpdateRevendaPayload>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Update, "Client").await?;
+
+    let client_uuid: uuid::Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid client ID"))?;
+    let revenda_id = payload.revenda_id.as_deref()
+        .map(|id| id.parse::<uuid::Uuid>())
+        .transpose()
+        .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
+
+    let client = sqlx::query_as::<_, crate::clients::model::Client>(
+        r#"
+        UPDATE clients
+        SET revenda_id = $2, updated_at = NOW()
+        WHERE id = $1
+        RETURNING id, revenda_id, name, document, document_type, email, phone,
+                  legal_rep_name, legal_rep_document, legal_rep_email, legal_rep_phone,
+                  zip_code, street, number, complement, neighborhood, city, state,
+                  created_at, updated_at
+        "#,
+    )
+    .bind(client_uuid)
+    .bind(revenda_id)
+    .fetch_optional(&state.pool)
+    .await
+    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+    .ok_or_else(|| AppError::not_found("Client not found"))?;
+
+    Ok(Json(serde_json::to_value(client).unwrap()))
 }
