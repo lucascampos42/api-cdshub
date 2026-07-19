@@ -94,6 +94,10 @@ pub enum UserType {
     RevendaAdmin,
     #[sea_orm(string_value = "REVENDA_SUPORTE")]
     RevendaSuporte,
+    #[sea_orm(string_value = "REVENDA_SUPORTE_AVANCADO")]
+    RevendaSuporteAvancado,
+    #[sea_orm(string_value = "REVENDA_FINANCEIRO")]
+    RevendaFinanceiro,
     #[sea_orm(string_value = "REVENDA_GERENTE")]
     RevendaGerente,
     #[sea_orm(string_value = "REVENDA_CONTADOR")]
