@@ -16,7 +16,6 @@ pub struct Claims {
     pub schema_name: Option<String>,
     pub company_role: Option<String>,
     pub session_id: String,
-    pub systems: Vec<String>,
     pub exp: usize,
     #[serde(default)]
     pub token_type: String,
@@ -38,7 +37,6 @@ pub fn create_token_pair(
     schema_name: Option<&str>,
     company_role: Option<&str>,
     session_id: &str,
-    systems: Vec<String>,
     jwt_secret: &str,
     refresh_secret: &str,
     jwt_expiration_hours: i64,
@@ -54,7 +52,6 @@ pub fn create_token_pair(
         schema_name,
         company_role,
         session_id,
-        systems.clone(),
         jwt_secret,
         jwt_expiration_hours,
     )?;
@@ -82,7 +79,6 @@ fn create_access_token(
     schema_name: Option<&str>,
     company_role: Option<&str>,
     session_id: &str,
-    systems: Vec<String>,
     secret: &str,
     expiration_hours: i64,
 ) -> Result<String, jsonwebtoken::errors::Error> {
@@ -101,7 +97,6 @@ fn create_access_token(
         schema_name: schema_name.map(|s| s.to_string()),
         company_role: company_role.map(|s| s.to_string()),
         session_id: session_id.to_string(),
-        systems,
         exp,
         token_type: "access".to_string(),
     };
@@ -134,7 +129,6 @@ pub fn create_refresh_token(
         schema_name: None,
         company_role: None,
         session_id: session_id.to_string(),
-        systems: vec![],
         exp,
         token_type: "refresh".to_string(),
     };
@@ -165,7 +159,6 @@ pub fn create_temp_2fa_token(
         schema_name: None,
         company_role: None,
         session_id: Uuid::new_v4().to_string(),
-        systems: vec![],
         exp,
         token_type: "2fa_pending".to_string(),
     };

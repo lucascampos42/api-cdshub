@@ -2,6 +2,7 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, Pa
 use std::str::FromStr;
 use uuid::Uuid;
 
+use crate::common::constants::suggestion::status as suggestion_status;
 use crate::entities::suggestions as suggestions_entity;
 use crate::errors::AppError;
 use super::model::{CreateSuggestionRequest, PaginatedSuggestions, PaginationMeta, SuggestionResponse, SuggestionStatus};
@@ -78,7 +79,7 @@ impl SuggestionService {
             title: Set(request.title),
             description: Set(request.description),
             system: Set(request.system),
-            status: Set("ABERTO".to_string()),
+            status: Set(suggestion_status::ABERTO.to_string()),
             votes: Set(0),
             created_by_id: Set(user_id.map(|s| s.to_string())),
             created_at: Set(None),

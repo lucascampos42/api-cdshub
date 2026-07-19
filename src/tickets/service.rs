@@ -5,6 +5,7 @@ use sea_orm::{
 };
 use uuid::Uuid;
 
+use crate::common::constants::ticket::status as ticket_status;
 use crate::entities::{
     tickets as tickets_entity,
     ticket_actions as ticket_actions_entity,
@@ -24,23 +25,11 @@ impl TicketService {
     }
 
     fn status_from_str(s: &str) -> TicketStatus {
-        match s {
-            "AGENDADO" => TicketStatus::Agendado,
-            "EM_EXECUCAO" => TicketStatus::EmExecucao,
-            "IMPLANTACAO" => TicketStatus::Implantacao,
-            "CONCLUIDO" => TicketStatus::Concluido,
-            "CANCELADO" => TicketStatus::Cancelado,
-            _ => TicketStatus::AguardandoAtendimento,
-        }
+        s.parse().unwrap_or(TicketStatus::AguardandoAtendimento)
     }
 
     fn priority_from_str(s: &str) -> TicketPriority {
-        match s {
-            "BAIXA" => TicketPriority::Baixa,
-            "ALTA" => TicketPriority::Alta,
-            "URGENTE" => TicketPriority::Urgente,
-            _ => TicketPriority::Media,
-        }
+        s.parse().unwrap_or(TicketPriority::Media)
     }
 
     fn model_to_ticket(m: tickets_entity::Model) -> Ticket {
@@ -50,8 +39,8 @@ impl TicketService {
             company_id: m.company_id,
             title: m.title,
             description: m.description,
-            status: format!("{:?}", m.status).to_uppercase(),
-            priority: format!("{:?}", m.priority).to_uppercase(),
+            status: m.status.to_string(),
+            priority: m.priority.to_string(),
             category: m.category,
             created_by_id: m.created_by_id,
             created_at: m.created_at,
@@ -207,10 +196,10 @@ impl TicketService {
         created_by_id: &str,
     ) -> Result<TicketWithDetails, AppError> {
         let status = Self::status_from_str(
-            request.status.as_deref().unwrap_or("AGUARDANDO_ATENDIMENTO"),
+            request.status.as_deref().unwrap_or(ticket_status::AGUARDANDO_ATENDIMENTO),
         );
         let priority = Self::priority_from_str(
-            request.priority.as_deref().unwrap_or("MEDIA"),
+            request.priority.as_deref().unwrap_or(crate::common::constants::ticket::priority::MEDIA),
         );
 
         let scheduled_for = request.scheduled_for.as_deref()
@@ -296,7 +285,7 @@ impl TicketService {
             active.description = Set(description);
         }
         if let Some(s) = request.status {
-            let closed = s == "CONCLUIDO" || s == "CANCELADO";
+            let closed = ticket_status::is_closed(&s);
             active.status = Set(Self::status_from_str(&s));
             if closed {
                 active.closed_at = Set(Some(now));

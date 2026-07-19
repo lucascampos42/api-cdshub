@@ -1,8 +1,6 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
-
-#[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Client {
     pub id: String,
     pub revenda_id: Option<String>,

@@ -38,7 +38,7 @@ pub async fn list_suggestions(
 
     let result = service.find_all(system, page, limit).await?;
 
-    Ok(Json(serde_json::to_value(result).unwrap()))
+    Ok(Json(serde_json::to_value(result)?))
 }
 
 #[utoipa::path(
@@ -63,7 +63,7 @@ pub async fn create_suggestion(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(suggestion).unwrap()),
+        Json(serde_json::to_value(suggestion)?),
     ))
 }
 
@@ -86,7 +86,7 @@ pub async fn vote_suggestion(
     let service = SuggestionService::new(state.db.clone());
     let suggestion = service.vote(&id).await?;
 
-    Ok(Json(serde_json::to_value(suggestion).unwrap()))
+    Ok(Json(serde_json::to_value(suggestion)?))
 }
 
 #[utoipa::path(
@@ -113,5 +113,5 @@ pub async fn update_suggestion_status(
     let service = SuggestionService::new(state.db.clone());
     let suggestion = service.update_status(&id, request.status).await?;
 
-    Ok(Json(serde_json::to_value(suggestion).unwrap()))
+    Ok(Json(serde_json::to_value(suggestion)?))
 }

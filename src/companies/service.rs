@@ -6,6 +6,10 @@ use uuid::Uuid;
 
 use crate::entities::companies as companies_entity;
 use crate::errors::AppError;
+
+use super::address::Address;
+use super::contact::Contact;
+use super::tax_info::TaxInfo;
 use super::model::{Company, CreateCompanyRequest, UpdateCompanyRequest};
 
 pub struct CompanyService {
@@ -19,7 +23,7 @@ impl CompanyService {
 
     fn model_to_company(m: companies_entity::Model) -> Company {
         Company {
-            id: m.id,
+            id: m.id.clone(),
             name: m.name,
             revenda_id: m.revenda_id,
             client_id: m.client_id,
@@ -31,24 +35,65 @@ impl CompanyService {
             parent_company_id: m.parent_company_id,
             parent_revenda_id: None,
             db_connection_string: m.db_connection_string,
-            email: m.email,
-            phone: m.phone,
-            document: m.document,
-            document_type: m.document_type,
-            zip_code: m.zip_code,
-            street: m.street,
-            number: m.number,
-            complement: m.complement,
-            neighborhood: m.neighborhood,
-            city: m.city,
-            state: m.state,
+            address: Address {
+                street: m.street,
+                number: m.number,
+                complement: m.complement,
+                neighborhood: m.neighborhood,
+                city: m.city,
+                state: m.state,
+                zip_code: m.zip_code,
+            },
+            contact: Contact {
+                email: m.email,
+                phone: m.phone,
+            },
+            tax_info: TaxInfo {
+                document: m.document,
+                document_type: m.document_type,
+            },
+        }
+    }
+
+    fn apply_address(
+        active: &mut companies_entity::ActiveModel,
+        address: Option<Address>,
+    ) {
+        if let Some(a) = address {
+            active.street = Set(a.street);
+            active.number = Set(a.number);
+            active.complement = Set(a.complement);
+            active.neighborhood = Set(a.neighborhood);
+            active.city = Set(a.city);
+            active.state = Set(a.state);
+            active.zip_code = Set(a.zip_code);
+        }
+    }
+
+    fn apply_contact(
+        active: &mut companies_entity::ActiveModel,
+        contact: Option<Contact>,
+    ) {
+        if let Some(c) = contact {
+            active.email = Set(c.email);
+            active.phone = Set(c.phone);
+        }
+    }
+
+    fn apply_tax_info(
+        active: &mut companies_entity::ActiveModel,
+        tax_info: Option<TaxInfo>,
+    ) {
+        if let Some(t) = tax_info {
+            active.document = Set(t.document);
+            active.document_type = Set(t.document_type);
         }
     }
 
     pub async fn create(&self, request: CreateCompanyRequest) -> Result<Company, AppError> {
         let company_id = Uuid::new_v4().to_string();
 
-        let model = companies_entity::ActiveModel {
+        let mut active = companies_entity::ActiveModel {
             id: Set(company_id),
             name: Set(request.name),
             revenda_id: Set(request.revenda_id),
@@ -58,23 +103,16 @@ impl CompanyService {
             parent_company_id: Set(request.parent_company_id),
             db_connection_string: Set(request.db_connection_string),
             active: Set(true),
-            email: Set(request.email),
-            phone: Set(request.phone),
-            document: Set(request.document),
-            document_type: Set(request.document_type),
-            zip_code: Set(request.zip_code),
-            street: Set(request.street),
-            number: Set(request.number),
-            complement: Set(request.complement),
-            neighborhood: Set(request.neighborhood),
-            city: Set(request.city),
-            state: Set(request.state),
             created_at: Set(Utc::now().naive_utc()),
             updated_at: Set(Utc::now().naive_utc()),
             ..Default::default()
         };
 
-        let result = model.insert(&self.db).await?;
+        Self::apply_address(&mut active, request.address);
+        Self::apply_contact(&mut active, request.contact);
+        Self::apply_tax_info(&mut active, request.tax_info);
+
+        let result = active.insert(&self.db).await?;
         Ok(Self::model_to_company(result))
     }
 
@@ -127,39 +165,11 @@ impl CompanyService {
         if let Some(v) = request.db_connection_string {
             active.db_connection_string = Set(Some(v));
         }
-        if let Some(v) = request.email {
-            active.email = Set(Some(v));
-        }
-        if let Some(v) = request.phone {
-            active.phone = Set(Some(v));
-        }
-        if let Some(v) = request.document {
-            active.document = Set(Some(v));
-        }
-        if let Some(v) = request.document_type {
-            active.document_type = Set(Some(v));
-        }
-        if let Some(v) = request.zip_code {
-            active.zip_code = Set(Some(v));
-        }
-        if let Some(v) = request.street {
-            active.street = Set(Some(v));
-        }
-        if let Some(v) = request.number {
-            active.number = Set(Some(v));
-        }
-        if let Some(v) = request.complement {
-            active.complement = Set(Some(v));
-        }
-        if let Some(v) = request.neighborhood {
-            active.neighborhood = Set(Some(v));
-        }
-        if let Some(v) = request.city {
-            active.city = Set(Some(v));
-        }
-        if let Some(v) = request.state {
-            active.state = Set(Some(v));
-        }
+
+        Self::apply_address(&mut active, request.address);
+        Self::apply_contact(&mut active, request.contact);
+        Self::apply_tax_info(&mut active, request.tax_info);
+
         active.updated_at = Set(Utc::now().naive_utc());
 
         let result = active.update(&self.db).await?;
@@ -182,6 +192,20 @@ impl CompanyService {
 
     pub async fn soft_delete(&self, id: &str) -> Result<(), AppError> {
         self.delete(id).await
+    }
+
+    pub async fn update_revenda(&self, id: &str, revenda_id: Option<String>) -> Result<Company, AppError> {
+        let model = companies_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Company not found"))?;
+
+        let mut active: companies_entity::ActiveModel = model.into();
+        active.revenda_id = Set(revenda_id);
+        active.updated_at = Set(Utc::now().naive_utc());
+
+        let result = active.update(&self.db).await?;
+        Ok(Self::model_to_company(result))
     }
 
     pub async fn set_demo_mode(&self, id: &str, enabled: bool) -> Result<Company, AppError> {

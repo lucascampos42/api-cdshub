@@ -1,10 +1,10 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
 use crate::common::types::UserType;
+use crate::entities::users;
 
-#[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct User {
     pub id: String,
     pub name: String,
@@ -21,9 +21,6 @@ pub struct User {
     pub username: String,
     pub current_company_id: Option<String>,
     pub user_type: UserType,
-    #[serde(skip_serializing)]
-    #[allow(dead_code)]
-    pub hashed_refresh_token: Option<String>,
     #[serde(skip_serializing)]
     pub two_factor_secret: Option<String>,
     pub is_two_factor_enabled: bool,
@@ -71,6 +68,29 @@ pub struct UserResponse {
     pub is_two_factor_enabled: bool,
 }
 
+impl From<users::Model> for User {
+    fn from(u: users::Model) -> Self {
+        Self {
+            id: u.id,
+            name: u.name,
+            email: u.email,
+            password_hash: u.password_hash,
+            role: u.role,
+            revenda_id: u.revenda_id,
+            active: u.active,
+            created_at: u.created_at,
+            updated_at: u.updated_at,
+            must_change_password: u.must_change_password,
+            cpf: u.cpf,
+            username: u.username,
+            current_company_id: u.current_company_id,
+            user_type: u.user_type.into(),
+            two_factor_secret: u.two_factor_secret,
+            is_two_factor_enabled: u.is_two_factor_enabled,
+        }
+    }
+}
+
 impl From<User> for UserResponse {
     fn from(user: User) -> Self {
         Self {
@@ -89,6 +109,12 @@ impl From<User> for UserResponse {
             user_type: user.user_type,
             is_two_factor_enabled: user.is_two_factor_enabled,
         }
+    }
+}
+
+impl From<users::Model> for UserResponse {
+    fn from(u: users::Model) -> Self {
+        User::from(u).into()
     }
 }
 

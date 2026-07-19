@@ -1,15 +1,17 @@
-use sqlx::PgPool;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use uuid::Uuid;
 
+use crate::entities::{companies as companies_entity, company_systems, revenda_systems};
 use crate::errors::AppError;
 use super::model::{find_system_by_slug, get_all_systems, SystemInfo};
 
 pub struct SystemService {
-    pool: PgPool,
+    db: DatabaseConnection,
 }
 
 impl SystemService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
     }
 
     pub fn find_all_master(&self) -> Vec<SystemInfo> {
@@ -20,33 +22,29 @@ impl SystemService {
         find_system_by_slug(system_slug)
             .ok_or_else(|| AppError::not_found("System not found"))?;
 
-        sqlx::query(
-            r#"
-            INSERT INTO revenda_systems (revenda_id, system_slug)
-            VALUES ($1, $2)
-            ON CONFLICT (revenda_id, system_slug) DO NOTHING
-            "#,
-        )
-        .bind(revenda_id)
-        .bind(system_slug)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let now = chrono::Utc::now().naive_utc();
+        let active = revenda_systems::ActiveModel {
+            id: Set(Uuid::new_v4().to_string()),
+            revenda_id: Set(revenda_id.to_string()),
+            system_slug: Set(system_slug.to_string()),
+            created_at: Set(now.into()),
+        };
+
+        let _ = active.insert(&self.db).await.map_err(|e| {
+            AppError::internal(format!("Database error: {}", e))
+        });
 
         Ok(())
     }
 
     pub async fn unassign_from_revenda(&self, revenda_id: &str, system_slug: &str) -> Result<(), AppError> {
-        let result = sqlx::query(
-            r#"DELETE FROM revenda_systems WHERE revenda_id = $1 AND system_slug = $2"#,
-        )
-        .bind(revenda_id)
-        .bind(system_slug)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let result = revenda_systems::Entity::delete_many()
+            .filter(revenda_systems::Column::RevendaId.eq(revenda_id))
+            .filter(revenda_systems::Column::SystemSlug.eq(system_slug))
+            .exec(&self.db)
+            .await?;
 
-        if result.rows_affected() == 0 {
+        if result.rows_affected == 0 {
             return Err(AppError::not_found("System assignment not found"));
         }
 
@@ -54,18 +52,16 @@ impl SystemService {
     }
 
     pub async fn find_by_revenda(&self, revenda_id: &str) -> Result<Vec<SystemInfo>, AppError> {
-        let rows = sqlx::query_scalar::<_, String>(
-            r#"SELECT system_slug FROM revenda_systems WHERE revenda_id = $1"#,
-        )
-        .bind(revenda_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let rows = revenda_systems::Entity::find()
+            .filter(revenda_systems::Column::RevendaId.eq(revenda_id))
+            .all(&self.db)
+            .await?;
 
+        let slugs: Vec<String> = rows.into_iter().map(|r| r.system_slug).collect();
         let all_systems = get_all_systems();
         let result: Vec<SystemInfo> = all_systems
             .into_iter()
-            .filter(|s| rows.contains(&s.slug))
+            .filter(|s| slugs.contains(&s.slug))
             .collect();
 
         Ok(result)
@@ -77,59 +73,55 @@ impl SystemService {
         system_slug: &str,
         active: bool,
     ) -> Result<(), AppError> {
-        let revenda_id = sqlx::query_scalar::<_, String>(
-            r#"SELECT revenda_id FROM companies WHERE id = $1 AND revenda_id IS NOT NULL"#,
-        )
-        .bind(company_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Company or revenda not found"))?;
+        let company = companies_entity::Entity::find_by_id(company_id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Company not found"))?;
 
-        let has_access = sqlx::query_scalar::<_, bool>(
-            r#"SELECT EXISTS(SELECT 1 FROM revenda_systems WHERE revenda_id = $1 AND system_slug = $2)"#,
-        )
-        .bind(&revenda_id)
-        .bind(system_slug)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let revenda_id = company.revenda_id
+            .ok_or_else(|| AppError::not_found("Company has no revenda"))?;
+
+        let has_access = revenda_systems::Entity::find()
+            .filter(revenda_systems::Column::RevendaId.eq(&revenda_id))
+            .filter(revenda_systems::Column::SystemSlug.eq(system_slug))
+            .one(&self.db)
+            .await?
+            .is_some();
 
         if !has_access {
             return Err(AppError::forbidden("Revenda does not have this system available"));
         }
 
-        sqlx::query(
-            r#"
-            INSERT INTO company_systems (company_id, system_slug, active)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (company_id, system_slug) DO UPDATE SET active = $3
-            "#,
-        )
-        .bind(company_id)
-        .bind(system_slug)
-        .bind(active)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let existing = company_systems::Entity::find()
+            .filter(company_systems::Column::CompanyId.eq(company_id))
+            .filter(company_systems::Column::SystemSlug.eq(system_slug))
+            .one(&self.db)
+            .await?;
+
+        if let Some(row) = existing {
+            let mut active_model: company_systems::ActiveModel = row.into();
+            active_model.active = sea_orm::Set(active);
+            active_model.update(&self.db).await?;
+        } else {
+            let now = chrono::Utc::now().naive_utc();
+            let new_active = company_systems::ActiveModel {
+                id: Set(Uuid::new_v4().to_string()),
+                company_id: Set(company_id.to_string()),
+                system_slug: Set(system_slug.to_string()),
+                active: Set(active),
+                created_at: Set(now.into()),
+            };
+            new_active.insert(&self.db).await?;
+        }
 
         Ok(())
     }
 
     pub async fn find_by_company(&self, company_id: &str) -> Result<Vec<serde_json::Value>, AppError> {
-        #[derive(sqlx::FromRow)]
-        struct CompanySystemRow {
-            system_slug: String,
-            active: bool,
-        }
-
-        let rows = sqlx::query_as::<_, CompanySystemRow>(
-            r#"SELECT system_slug, active FROM company_systems WHERE company_id = $1"#,
-        )
-        .bind(company_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let rows = company_systems::Entity::find()
+            .filter(company_systems::Column::CompanyId.eq(company_id))
+            .all(&self.db)
+            .await?;
 
         let all_systems = get_all_systems();
         let result: Vec<serde_json::Value> = rows

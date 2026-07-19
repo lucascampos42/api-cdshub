@@ -2,7 +2,6 @@ use axum::middleware as axum_middleware;
 use axum::routing::{any, delete, get, patch, post};
 use axum::Router;
 use sea_orm::Database;
-use sqlx::PgPool;
 use axum::http::header;
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
@@ -12,7 +11,6 @@ mod clients;
 mod common;
 mod companies;
 mod config;
-mod db;
 mod entities;
 mod errors;
 mod openapi;
@@ -26,7 +24,6 @@ mod users;
 
 #[derive(Clone)]
 pub struct AppState {
-    pub pool: PgPool,
     pub db: sea_orm::DatabaseConnection,
     pub config: config::Config,
     pub http_client: reqwest::Client,
@@ -42,11 +39,9 @@ async fn main() {
         .init();
 
     let config = config::Config::from_env();
-    let pool = db::create_pool(&config.database_url).await;
     let db = Database::connect(&config.database_url).await.expect("Failed to connect to database via SeaORM");
 
     let state = AppState {
-        pool: pool.clone(),
         db,
         config: config.clone(),
         http_client: reqwest::Client::new(),
@@ -138,7 +133,7 @@ async fn main() {
         .route("/api/tickets/{ticketId}/actions", post(tickets::routes::add_action))
         .route("/api/client/{*path}", any(proxy::proxy_to_cdsgestor))
         .route("/api/cms/{*path}", any(proxy::proxy_to_cdsgestor))
-        .layer(axum_middleware::from_fn(auth::middleware::auth_middleware));
+        .layer(axum_middleware::from_fn_with_state(state.clone(), auth::middleware::auth_middleware));
 
     let app = Router::new()
         .merge(public_routes)

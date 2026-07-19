@@ -1,53 +1,84 @@
-use sqlx::PgPool;
+use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
 use uuid::Uuid;
 
+use crate::entities::{revendas as revendas_entity, revenda_systems as revenda_systems_entity};
 use crate::errors::AppError;
 use super::model::{CreateRevendaRequest, Revenda, RevendaSystem, UpdateRevendaRequest};
 
 pub struct RevendaService {
-    pool: PgPool,
+    db: DatabaseConnection,
 }
 
 impl RevendaService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
+    }
+
+    fn model_to_revenda(m: revendas_entity::Model) -> Revenda {
+        Revenda {
+            id: m.id,
+            name: m.name,
+            domain: m.domain.unwrap_or_default(),
+            active: m.active,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+            city: m.city,
+            complement: m.complement,
+            document: m.document.unwrap_or_default(),
+            document_type: m.document_type.unwrap_or_default(),
+            neighborhood: m.neighborhood,
+            number: m.number,
+            state: m.state,
+            street: m.street,
+            zip_code: m.zip_code,
+        }
+    }
+
+    fn model_to_system(m: revenda_systems_entity::Model) -> RevendaSystem {
+        RevendaSystem {
+            id: m.id,
+            revenda_id: m.revenda_id,
+            system_slug: m.system_slug,
+            created_at: m.created_at,
+        }
+    }
+
+    async fn get_systems(&self, revenda_id: &str) -> Result<Vec<RevendaSystem>, AppError> {
+        let rows = revenda_systems_entity::Entity::find()
+            .filter(revenda_systems_entity::Column::RevendaId.eq(revenda_id))
+            .all(&self.db)
+            .await?;
+        Ok(rows.into_iter().map(Self::model_to_system).collect())
     }
 
     pub async fn create(&self, request: CreateRevendaRequest) -> Result<(Revenda, Vec<RevendaSystem>), AppError> {
-        let mut tx = self.pool.begin().await
-            .map_err(|e| AppError::internal(format!("Transaction error: {}", e)))?;
-
         let revenda_id = Uuid::new_v4().to_string();
+        let now = Utc::now().naive_utc();
+        let domain = request.domain.clone();
 
-        let revenda = sqlx::query_as::<_, Revenda>(
-            r#"
-            INSERT INTO revendas (
-                id, name, domain, document, document_type, active,
-                street, number, complement, neighborhood, city, state, zip_code
-            )
-            VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, $12)
-            RETURNING id, name, domain, active, created_at, updated_at,
-                      city, complement, document, document_type, neighborhood,
-                      number, state, street, zip_code
-            "#,
-        )
-        .bind(&revenda_id)
-        .bind(&request.name)
-        .bind(&request.domain)
-        .bind(&request.document)
-        .bind(&request.document_type)
-        .bind(&request.street)
-        .bind(&request.number)
-        .bind(&request.complement)
-        .bind(&request.neighborhood)
-        .bind(&request.city)
-        .bind(&request.state)
-        .bind(&request.zip_code)
-        .fetch_one(&mut *tx)
-        .await
-        .map_err(|e| {
-            if let sqlx::Error::Database(ref db_err) = e {
-                if db_err.constraint().is_some() {
+        let active = revendas_entity::ActiveModel {
+            id: Set(revenda_id.clone()),
+            name: Set(request.name),
+            domain: Set(Some(request.domain)),
+            active: Set(true),
+            created_at: Set(now.into()),
+            updated_at: Set(now.into()),
+            document: Set(Some(request.document)),
+            document_type: Set(Some(request.document_type)),
+            street: Set(request.street),
+            number: Set(request.number),
+            complement: Set(request.complement),
+            neighborhood: Set(request.neighborhood),
+            city: Set(request.city),
+            state: Set(request.state),
+            zip_code: Set(request.zip_code),
+        };
+
+        let result = active.insert(&self.db).await.map_err(|e| {
+            if let sea_orm::DbErr::Exec(ref exec_err) = e {
+                let error_str = exec_err.to_string().to_lowercase();
+                if error_str.contains("unique") || error_str.contains("duplicate") {
                     return AppError::conflict("Revenda with this domain or document already exists");
                 }
             }
@@ -57,27 +88,19 @@ impl RevendaService {
         let mut systems = Vec::new();
         if let Some(system_ids) = &request.system_ids {
             for slug in system_ids {
-                let system = sqlx::query_as::<_, RevendaSystem>(
-                    r#"
-                    INSERT INTO revenda_systems (revenda_id, system_slug)
-                    VALUES ($1, $2)
-                    RETURNING id, revenda_id, system_slug, created_at
-                    "#,
-                )
-                .bind(&revenda.id)
-                .bind(slug)
-                .fetch_one(&mut *tx)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error creating system: {}", e)))?;
-                systems.push(system);
+                let sys_active = revenda_systems_entity::ActiveModel {
+                    id: Set(Uuid::new_v4().to_string()),
+                    revenda_id: Set(revenda_id.clone()),
+                    system_slug: Set(slug.clone()),
+                    created_at: Set(now.into()),
+                };
+                let sys_result = sys_active.insert(&self.db).await?;
+                systems.push(Self::model_to_system(sys_result));
             }
         }
 
-        tx.commit().await
-            .map_err(|e| AppError::internal(format!("Transaction commit error: {}", e)))?;
-
         if request.provision_now.unwrap_or(true) {
-            let schema_name = format!("revenda_{}", request.domain.replace(|c: char| !c.is_alphanumeric(), "_").to_lowercase());
+            let schema_name = format!("revenda_{}", domain.replace(|c: char| !c.is_alphanumeric(), "_").to_lowercase());
             let revenda_api_url = std::env::var("REVENDA_API_URL").unwrap_or_else(|_| "http://localhost:4243".to_string());
             let internal_api_key = std::env::var("INTERNAL_API_KEY").unwrap_or_else(|_| "cdsbot-secret-key".to_string());
 
@@ -102,183 +125,104 @@ impl RevendaService {
             });
         }
 
-        Ok((revenda, systems))
+        Ok((Self::model_to_revenda(result), systems))
     }
 
     pub async fn find_all(&self) -> Result<Vec<(Revenda, Vec<RevendaSystem>)>, AppError> {
-        let revendas = sqlx::query_as::<_, Revenda>(
-            r#"
-            SELECT id, name, domain, active, created_at, updated_at,
-                   city, complement, document, document_type, neighborhood,
-                   number, state, street, zip_code
-            FROM revendas
-            ORDER BY created_at DESC
-            "#,
-        )
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let revendas = revendas_entity::Entity::find()
+            .order_by_desc(revendas_entity::Column::CreatedAt)
+            .all(&self.db)
+            .await?;
 
         let mut result = Vec::new();
         for revenda in revendas {
-            let systems = sqlx::query_as::<_, RevendaSystem>(
-                r#"
-                SELECT id, revenda_id, system_slug, created_at
-                FROM revenda_systems
-                WHERE revenda_id = $1
-                "#,
-            )
-            .bind(&revenda.id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-            result.push((revenda, systems));
+            let systems = self.get_systems(&revenda.id).await?;
+            result.push((Self::model_to_revenda(revenda), systems));
         }
 
         Ok(result)
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<(Revenda, Vec<RevendaSystem>), AppError> {
-        let revenda = sqlx::query_as::<_, Revenda>(
-            r#"
-            SELECT id, name, domain, active, created_at, updated_at,
-                   city, complement, document, document_type, neighborhood,
-                   number, state, street, zip_code
-            FROM revendas
-            WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Revenda not found"))?;
+        let revenda = revendas_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Revenda not found"))?;
 
-        let systems = sqlx::query_as::<_, RevendaSystem>(
-            r#"
-            SELECT id, revenda_id, system_slug, created_at
-            FROM revenda_systems
-            WHERE revenda_id = $1
-            "#,
-        )
-        .bind(&revenda.id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-        Ok((revenda, systems))
+        let systems = self.get_systems(&revenda.id).await?;
+        Ok((Self::model_to_revenda(revenda), systems))
     }
 
     pub async fn update(&self, id: &str, request: UpdateRevendaRequest) -> Result<(Revenda, Vec<RevendaSystem>), AppError> {
-        let existing = {
-            let row = sqlx::query_as::<_, Revenda>(
-                r#"
-                SELECT id, name, domain, active, created_at, updated_at,
-                       city, complement, document, document_type, neighborhood,
-                       number, state, street, zip_code
-                FROM revendas
-                WHERE id = $1
-                "#,
-            )
-            .bind(id)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+        let model = revendas_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
             .ok_or_else(|| AppError::not_found("Revenda not found"))?;
-            row
-        };
 
-        let name = request.name.unwrap_or_else(|| existing.name.clone());
-        let domain = request.domain.unwrap_or_else(|| existing.domain.clone());
-        let active = request.active.unwrap_or(existing.active);
-        let street = request.street.or(existing.street);
-        let number = request.number.or(existing.number);
-        let complement = request.complement.or(existing.complement);
-        let neighborhood = request.neighborhood.or(existing.neighborhood);
-        let city = request.city.or(existing.city);
-        let state = request.state.or(existing.state);
-        let zip_code = request.zip_code.or(existing.zip_code);
+        let mut active: revendas_entity::ActiveModel = model.into();
+        let now = Utc::now().naive_utc();
 
-        let mut tx = self.pool.begin().await
-            .map_err(|e| AppError::internal(format!("Transaction error: {}", e)))?;
+        if let Some(name) = request.name {
+            active.name = Set(name);
+        }
+        if let Some(domain) = request.domain {
+            active.domain = Set(Some(domain));
+        }
+        if let Some(active_flag) = request.active {
+            active.active = Set(active_flag);
+        }
+        if let Some(v) = request.street {
+            active.street = Set(Some(v));
+        }
+        if let Some(v) = request.number {
+            active.number = Set(Some(v));
+        }
+        if let Some(v) = request.complement {
+            active.complement = Set(Some(v));
+        }
+        if let Some(v) = request.neighborhood {
+            active.neighborhood = Set(Some(v));
+        }
+        if let Some(v) = request.city {
+            active.city = Set(Some(v));
+        }
+        if let Some(v) = request.state {
+            active.state = Set(Some(v));
+        }
+        if let Some(v) = request.zip_code {
+            active.zip_code = Set(Some(v));
+        }
 
-        let revenda = sqlx::query_as::<_, Revenda>(
-            r#"
-            UPDATE revendas
-            SET name = $2, domain = $3, active = $4, street = $5, number = $6,
-                complement = $7, neighborhood = $8, city = $9, state = $10, zip_code = $11,
-                updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, name, domain, active, created_at, updated_at,
-                      city, complement, document, document_type, neighborhood,
-                      number, state, street, zip_code
-            "#,
-        )
-        .bind(id)
-        .bind(&name)
-        .bind(&domain)
-        .bind(active)
-        .bind(&street)
-        .bind(&number)
-        .bind(&complement)
-        .bind(&neighborhood)
-        .bind(&city)
-        .bind(&state)
-        .bind(&zip_code)
-        .fetch_optional(&mut *tx)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Revenda not found"))?;
+        active.updated_at = Set(now.into());
+        let revenda = active.update(&self.db).await?;
 
         if let Some(system_ids) = &request.system_ids {
-            sqlx::query("DELETE FROM revenda_systems WHERE revenda_id = $1")
-                .bind(id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            revenda_systems_entity::Entity::delete_many()
+                .filter(revenda_systems_entity::Column::RevendaId.eq(id))
+                .exec(&self.db)
+                .await?;
 
             for slug in system_ids {
-                sqlx::query(
-                    r#"
-                    INSERT INTO revenda_systems (revenda_id, system_slug)
-                    VALUES ($1, $2)
-                    "#,
-                )
-                .bind(id)
-                .bind(slug)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error creating system: {}", e)))?;
+                let sys_active = revenda_systems_entity::ActiveModel {
+                    id: Set(Uuid::new_v4().to_string()),
+                    revenda_id: Set(id.to_string()),
+                    system_slug: Set(slug.clone()),
+                    created_at: Set(now.into()),
+                };
+                sys_active.insert(&self.db).await?;
             }
         }
 
-        tx.commit().await
-            .map_err(|e| AppError::internal(format!("Transaction commit error: {}", e)))?;
-
-        let systems = sqlx::query_as::<_, RevendaSystem>(
-            r#"
-            SELECT id, revenda_id, system_slug, created_at
-            FROM revenda_systems
-            WHERE revenda_id = $1
-            "#,
-        )
-        .bind(&revenda.id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-        Ok((revenda, systems))
+        let systems = self.get_systems(id).await?;
+        Ok((Self::model_to_revenda(revenda), systems))
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), AppError> {
-        let result = sqlx::query("DELETE FROM revendas WHERE id = $1")
-            .bind(id)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let result = revendas_entity::Entity::delete_by_id(id)
+            .exec(&self.db)
+            .await?;
 
-        if result.rows_affected() == 0 {
+        if result.rows_affected == 0 {
             return Err(AppError::not_found("Revenda not found"));
         }
 

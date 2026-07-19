@@ -41,7 +41,7 @@ pub async fn list_tickets(
         params.get("assignedToUserId").map(|s| s.as_str()),
     ).await?;
 
-    Ok(Json(serde_json::to_value(tickets).unwrap()))
+    Ok(Json(serde_json::to_value(tickets)?))
 }
 
 #[utoipa::path(
@@ -62,7 +62,7 @@ pub async fn get_stats(
     let service = TicketService::new(state.db.clone());
     let stats = service.get_stats(params.get("revendaId").map(|s| s.as_str())).await?;
 
-    Ok(Json(serde_json::to_value(stats).unwrap()))
+    Ok(Json(serde_json::to_value(stats)?))
 }
 
 #[utoipa::path(
@@ -87,7 +87,7 @@ pub async fn get_ticket(
     let service = TicketService::new(state.db.clone());
     let ticket = service.find_by_id(&id).await?;
 
-    Ok(Json(serde_json::to_value(ticket).unwrap()))
+    Ok(Json(serde_json::to_value(ticket)?))
 }
 
 #[utoipa::path(
@@ -115,7 +115,7 @@ pub async fn create_ticket(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(ticket).unwrap()),
+        Json(serde_json::to_value(ticket)?),
     ))
 }
 
@@ -143,7 +143,7 @@ pub async fn update_ticket(
     let service = TicketService::new(state.db.clone());
     let ticket = service.update(&id, request).await?;
 
-    Ok(Json(serde_json::to_value(ticket).unwrap()))
+    Ok(Json(serde_json::to_value(ticket)?))
 }
 
 #[utoipa::path(
@@ -197,7 +197,7 @@ pub async fn add_action(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(action).unwrap()),
+        Json(serde_json::to_value(action)?),
     ))
 }
 
@@ -222,5 +222,5 @@ pub async fn get_actions(
     let service = TicketService::new(state.db.clone());
     let actions = service.get_actions(&ticket_id).await?;
 
-    Ok(Json(serde_json::to_value(actions).unwrap()))
+    Ok(Json(serde_json::to_value(actions)?))
 }

@@ -61,7 +61,7 @@ pub async fn create_client(
 
     let service = ClientService::new(state.db.clone());
     let client = service.create(request).await?;
-    Ok((StatusCode::CREATED, Json(serde_json::to_value(client).unwrap())))
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(client)?)))
 }
 
 #[utoipa::path(
@@ -92,7 +92,7 @@ pub async fn list_clients(
     };
 
     let clients = service.find_all(revenda_id).await?;
-    Ok(Json(serde_json::to_value(clients).unwrap()))
+    Ok(Json(serde_json::to_value(clients)?))
 }
 
 #[utoipa::path(
@@ -120,7 +120,7 @@ pub async fn get_client(
     // Revenda só acessa cliente da sua própria revenda
     assert_revenda_access(&auth, client.revenda_id.as_deref())?;
 
-    Ok(Json(serde_json::to_value(client).unwrap()))
+    Ok(Json(serde_json::to_value(client)?))
 }
 
 #[utoipa::path(
@@ -151,7 +151,7 @@ pub async fn update_client(
     assert_revenda_access(&auth, existing.revenda_id.as_deref())?;
 
     let client = service.update(&id, request).await?;
-    Ok(Json(serde_json::to_value(client).unwrap()))
+    Ok(Json(serde_json::to_value(client)?))
 }
 
 #[utoipa::path(
@@ -214,5 +214,5 @@ pub async fn update_client_revenda(
 
     let service = ClientService::new(state.db.clone());
     let client = service.update_revenda(&id, payload.revenda_id).await?;
-    Ok(Json(serde_json::to_value(client).unwrap()))
+    Ok(Json(serde_json::to_value(client)?))
 }

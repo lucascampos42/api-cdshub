@@ -4,27 +4,22 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-# Web framework
+
 axum = "0.8"
 axum-extra = { version = "0.12", features = ["cookie"] }
 tokio = { version = "1", features = ["full"] }
 tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 
-# Database
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "uuid"] }
-
 # ORM
-sea-orm = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-native-tls", "macros", "with-chrono", "with-uuid", "serde_json"] }
-sea-orm-migration = { version = "1.1", features = ["sqlx-postgres", "runtime-tokio-native-tls"] }
+sea-orm = { version = "1.1", features = ["runtime-tokio-native-tls", "macros", "with-chrono", "with-uuid", "serde_json", "postgres-array", "with-json"] }
+sea-orm-migration = { version = "1.1", features = ["runtime-tokio-native-tls"] }
 
 # Auth
 jsonwebtoken = "9"
 argon2 = "0.5"
 bcrypt = "0.16"
 rand = "0.8"
-
-# 2FA
 totp-rs = { version = "5", features = ["gen_secret", "otpauth"] }
 qrcode = "0.14"
 
@@ -37,13 +32,8 @@ base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 
-# Environment
 dotenvy = "0.15"
-
-# HTTP client
 reqwest = { version = "0.12", features = ["json"] }
-
-# OpenAPI
 utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-axum = "0.2"
 

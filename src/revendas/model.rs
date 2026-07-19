@@ -1,8 +1,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
-#[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Revenda {
     pub id: String,
     pub name: String,
@@ -21,7 +20,7 @@ pub struct Revenda {
     pub zip_code: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct RevendaSystem {
     pub id: String,
     pub revenda_id: String,

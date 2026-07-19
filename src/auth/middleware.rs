@@ -1,4 +1,4 @@
-use axum::extract::FromRequestParts;
+use axum::extract::{FromRequestParts, State};
 use axum::extract::Request;
 use axum::http::header;
 use axum::http::request::Parts;
@@ -6,7 +6,9 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 use crate::auth::jwt::decode_token;
+use crate::auth::sessions::SessionService;
 use crate::errors::AppError;
+use crate::AppState;
 
 #[derive(Debug, Clone)]
 pub struct AuthUser {
@@ -16,12 +18,9 @@ pub struct AuthUser {
     pub role: String,
     pub revenda_id: Option<String>,
     pub company_id: Option<String>,
-    #[allow(dead_code)]
     pub schema_name: Option<String>,
     pub company_role: Option<String>,
     pub session_id: String,
-    #[allow(dead_code)]
-    pub systems: Vec<String>,
 }
 
 impl<S> FromRequestParts<S> for AuthUser
@@ -40,17 +39,27 @@ where
 }
 
 pub async fn auth_middleware(
+    State(state): State<AppState>,
     mut request: Request,
     next: Next,
 ) -> Result<Response, AppError> {
     let token = extract_token(&request)?;
 
-    let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
-    let claims = decode_token(&token, &jwt_secret)
+    let claims = decode_token(&token, &state.config.jwt_secret)
         .map_err(|e| AppError::unauthorized(format!("Invalid token: {}", e)))?;
 
     if claims.token_type != "access" {
         return Err(AppError::unauthorized("Invalid token type"));
+    }
+
+    let session_service = SessionService::new(state.db.clone());
+    let session_valid = session_service
+        .is_session_valid(&claims.sub, &claims.session_id)
+        .await
+        .map_err(|_| AppError::internal("Failed to validate session"))?;
+
+    if !session_valid {
+        return Err(AppError::unauthorized("Session expired or revoked"));
     }
 
     let auth_user = AuthUser {
@@ -63,7 +72,6 @@ pub async fn auth_middleware(
         schema_name: claims.schema_name,
         company_role: claims.company_role,
         session_id: claims.session_id,
-        systems: claims.systems,
     };
 
     request.extensions_mut().insert(auth_user);

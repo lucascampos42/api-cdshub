@@ -15,6 +15,30 @@ pub enum TicketPriority {
     #[sea_orm(string_value = "URGENTE")]
     Urgente,
 }
+
+impl std::fmt::Display for TicketPriority {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Baixa => write!(f, "BAIXA"),
+            Self::Media => write!(f, "MEDIA"),
+            Self::Alta => write!(f, "ALTA"),
+            Self::Urgente => write!(f, "URGENTE"),
+        }
+    }
+}
+
+impl std::str::FromStr for TicketPriority {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "BAIXA" => Ok(Self::Baixa),
+            "MEDIA" => Ok(Self::Media),
+            "ALTA" => Ok(Self::Alta),
+            "URGENTE" => Ok(Self::Urgente),
+            _ => Err(format!("Invalid ticket priority: {}", s)),
+        }
+    }
+}
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "TicketStatus")]
 pub enum TicketStatus {
@@ -30,6 +54,34 @@ pub enum TicketStatus {
     Concluido,
     #[sea_orm(string_value = "CANCELADO")]
     Cancelado,
+}
+
+impl std::fmt::Display for TicketStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::AguardandoAtendimento => write!(f, "AGUARDANDO_ATENDIMENTO"),
+            Self::Agendado => write!(f, "AGENDADO"),
+            Self::EmExecucao => write!(f, "EM_EXECUCAO"),
+            Self::Implantacao => write!(f, "IMPLANTACAO"),
+            Self::Concluido => write!(f, "CONCLUIDO"),
+            Self::Cancelado => write!(f, "CANCELADO"),
+        }
+    }
+}
+
+impl std::str::FromStr for TicketStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "AGUARDANDO_ATENDIMENTO" => Ok(Self::AguardandoAtendimento),
+            "AGENDADO" => Ok(Self::Agendado),
+            "EM_EXECUCAO" => Ok(Self::EmExecucao),
+            "IMPLANTACAO" => Ok(Self::Implantacao),
+            "CONCLUIDO" => Ok(Self::Concluido),
+            "CANCELADO" => Ok(Self::Cancelado),
+            _ => Err(format!("Invalid ticket status: {}", s)),
+        }
+    }
 }
 #[derive(Debug, Clone, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[sea_orm(rs_type = "String", db_type = "Enum", enum_name = "UserType")]

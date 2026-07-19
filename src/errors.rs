@@ -52,10 +52,10 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From<sqlx::Error> for AppError {
-    fn from(err: sqlx::Error) -> Self {
-        tracing::error!("Database error: {:?}", err);
-        Self::internal("Erro no banco de dados")
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        tracing::error!("Serialization error: {:?}", err);
+        Self::internal("Erro de serialização")
     }
 }
 

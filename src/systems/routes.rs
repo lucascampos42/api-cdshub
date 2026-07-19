@@ -25,10 +25,10 @@ pub async fn list_master_systems(
         return Err(AppError::forbidden("Only SuperAdmin can list master systems"));
     }
 
-    let service = SystemService::new(state.pool.clone());
+    let service = SystemService::new(state.db.clone());
     let systems = service.find_all_master();
 
-    Ok(Json(serde_json::to_value(systems).unwrap()))
+    Ok(Json(serde_json::to_value(systems)?))
 }
 
 #[utoipa::path(
@@ -52,7 +52,7 @@ pub async fn assign_to_revenda(
 ) -> Result<StatusCode, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Create, "System").await?;
 
-    let service = SystemService::new(state.pool.clone());
+    let service = SystemService::new(state.db.clone());
     service.assign_to_revenda(&revenda_id, &slug).await?;
 
     Ok(StatusCode::OK)
@@ -79,7 +79,7 @@ pub async fn unassign_from_revenda(
 ) -> Result<StatusCode, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Delete, "System").await?;
 
-    let service = SystemService::new(state.pool.clone());
+    let service = SystemService::new(state.db.clone());
     service.unassign_from_revenda(&revenda_id, &slug).await?;
 
     Ok(StatusCode::OK)
@@ -106,10 +106,10 @@ pub async fn find_by_revenda(
         return Err(AppError::forbidden("Access denied"));
     }
 
-    let service = SystemService::new(state.pool.clone());
+    let service = SystemService::new(state.db.clone());
     let systems = service.find_by_revenda(&revenda_id).await?;
 
-    Ok(Json(serde_json::to_value(systems).unwrap()))
+    Ok(Json(serde_json::to_value(systems)?))
 }
 
 #[utoipa::path(
@@ -139,7 +139,7 @@ pub async fn toggle_for_company(
         .and_then(|v| v.as_bool())
         .unwrap_or(true);
 
-    let service = SystemService::new(state.pool.clone());
+    let service = SystemService::new(state.db.clone());
     service.toggle_for_company(&company_id, &slug, active).await?;
 
     Ok(StatusCode::OK)
@@ -163,8 +163,8 @@ pub async fn find_by_company(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "System").await?;
 
-    let service = SystemService::new(state.pool.clone());
+    let service = SystemService::new(state.db.clone());
     let systems = service.find_by_company(&company_id).await?;
 
-    Ok(Json(serde_json::to_value(systems).unwrap()))
+    Ok(Json(serde_json::to_value(systems)?))
 }

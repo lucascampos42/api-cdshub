@@ -1,8 +1,11 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
-use sqlx::FromRow;
 
-#[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+use super::address::Address;
+use super::contact::Contact;
+use super::tax_info::TaxInfo;
+
+#[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct Company {
     pub id: String,
     pub name: String,
@@ -16,17 +19,9 @@ pub struct Company {
     pub parent_company_id: Option<String>,
     pub parent_revenda_id: Option<String>,
     pub db_connection_string: Option<String>,
-    pub email: Option<String>,
-    pub phone: Option<String>,
-    pub document: Option<String>,
-    pub document_type: Option<String>,
-    pub zip_code: Option<String>,
-    pub street: Option<String>,
-    pub number: Option<String>,
-    pub complement: Option<String>,
-    pub neighborhood: Option<String>,
-    pub city: Option<String>,
-    pub state: Option<String>,
+    pub address: Address,
+    pub contact: Contact,
+    pub tax_info: TaxInfo,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -38,20 +33,10 @@ pub struct CreateCompanyRequest {
     pub subdomain: Option<String>,
     pub schema_name: Option<String>,
     pub parent_company_id: Option<String>,
-    #[allow(dead_code)]
-    pub parent_revenda_id: Option<String>,
     pub db_connection_string: Option<String>,
-    pub email: Option<String>,
-    pub phone: Option<String>,
-    pub document: Option<String>,
-    pub document_type: Option<String>,
-    pub zip_code: Option<String>,
-    pub street: Option<String>,
-    pub number: Option<String>,
-    pub complement: Option<String>,
-    pub neighborhood: Option<String>,
-    pub city: Option<String>,
-    pub state: Option<String>,
+    pub address: Option<Address>,
+    pub contact: Option<Contact>,
+    pub tax_info: Option<TaxInfo>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -61,18 +46,8 @@ pub struct UpdateCompanyRequest {
     pub subdomain: Option<String>,
     pub active: Option<bool>,
     pub parent_company_id: Option<String>,
-    #[allow(dead_code)]
-    pub parent_revenda_id: Option<String>,
     pub db_connection_string: Option<String>,
-    pub email: Option<String>,
-    pub phone: Option<String>,
-    pub document: Option<String>,
-    pub document_type: Option<String>,
-    pub zip_code: Option<String>,
-    pub street: Option<String>,
-    pub number: Option<String>,
-    pub complement: Option<String>,
-    pub neighborhood: Option<String>,
-    pub city: Option<String>,
-    pub state: Option<String>,
+    pub address: Option<Address>,
+    pub contact: Option<Contact>,
+    pub tax_info: Option<TaxInfo>,
 }

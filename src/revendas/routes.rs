@@ -27,7 +27,7 @@ pub async fn create_revenda(
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
     check_permission(&state.db, &auth.user_type, Action::Create, "Revenda").await?;
 
-    let service = RevendaService::new(state.pool.clone());
+    let service = RevendaService::new(state.db.clone());
     let (revenda, systems) = service.create(request).await?;
 
     Ok((
@@ -53,7 +53,7 @@ pub async fn list_revendas(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Revenda").await?;
 
-    let service = RevendaService::new(state.pool.clone());
+    let service = RevendaService::new(state.db.clone());
     let revendas = service.find_all().await?;
 
     let result: Vec<serde_json::Value> = revendas
@@ -66,7 +66,7 @@ pub async fn list_revendas(
         })
         .collect();
 
-    Ok(Json(serde_json::to_value(result).unwrap()))
+    Ok(Json(serde_json::to_value(result)?))
 }
 
 #[utoipa::path(
@@ -88,7 +88,7 @@ pub async fn get_revenda(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Revenda").await?;
 
-    let service = RevendaService::new(state.pool.clone());
+    let service = RevendaService::new(state.db.clone());
     let (revenda, systems) = service.find_by_id(&id).await?;
 
     Ok(Json(serde_json::json!({
@@ -118,7 +118,7 @@ pub async fn update_revenda(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Update, "Revenda").await?;
 
-    let service = RevendaService::new(state.pool.clone());
+    let service = RevendaService::new(state.db.clone());
     let (revenda, systems) = service.update(&id, request).await?;
 
     Ok(Json(serde_json::json!({
@@ -146,7 +146,7 @@ pub async fn delete_revenda(
 ) -> Result<StatusCode, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Delete, "Revenda").await?;
 
-    let service = RevendaService::new(state.pool.clone());
+    let service = RevendaService::new(state.db.clone());
     service.delete(&id).await?;
 
     Ok(StatusCode::OK)

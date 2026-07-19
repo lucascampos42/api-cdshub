@@ -38,7 +38,7 @@ pub async fn create_company(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(company).unwrap()),
+        Json(serde_json::to_value(company)?),
     ))
 }
 
@@ -64,7 +64,7 @@ pub async fn list_companies(
     let revenda_id = params.get("revendaId").map(|s| s.as_str());
     let companies = service.find_all(revenda_id).await?;
 
-    Ok(Json(serde_json::to_value(companies).unwrap()))
+    Ok(Json(serde_json::to_value(companies)?))
 }
 
 #[utoipa::path(
@@ -89,7 +89,7 @@ pub async fn get_company(
     let service = CompanyService::new(state.db.clone());
     let company = service.find_by_id(&id).await?;
 
-    Ok(Json(serde_json::to_value(company).unwrap()))
+    Ok(Json(serde_json::to_value(company)?))
 }
 
 #[utoipa::path(
@@ -116,7 +116,7 @@ pub async fn update_company(
     let service = CompanyService::new(state.db.clone());
     let company = service.update(&id, request).await?;
 
-    Ok(Json(serde_json::to_value(company).unwrap()))
+    Ok(Json(serde_json::to_value(company)?))
 }
 
 #[utoipa::path(
@@ -166,7 +166,7 @@ pub async fn enable_demo(
     let service = CompanyService::new(state.db.clone());
     let company = service.set_demo_mode(&id, true).await?;
 
-    Ok(Json(serde_json::to_value(company).unwrap()))
+    Ok(Json(serde_json::to_value(company)?))
 }
 
 #[utoipa::path(
@@ -191,7 +191,7 @@ pub async fn disable_demo(
     let service = CompanyService::new(state.db.clone());
     let company = service.set_demo_mode(&id, false).await?;
 
-    Ok(Json(serde_json::to_value(company).unwrap()))
+    Ok(Json(serde_json::to_value(company)?))
 }
 
 #[utoipa::path(
@@ -215,25 +215,8 @@ pub async fn update_company_revenda(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
-    let revenda_id = payload.revenda_id;
+    let service = CompanyService::new(state.db.clone());
+    let company = service.update_revenda(&id, payload.revenda_id).await?;
 
-    let company = sqlx::query_as::<_, crate::companies::model::Company>(
-        r#"
-        UPDATE companies
-        SET revenda_id = $2, updated_at = NOW()
-        WHERE id = $1
-        RETURNING id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
-                  schema_name, parent_company_id, parent_revenda_id, db_connection_string,
-                  email, phone, document, document_type,
-                  zip_code, street, number, complement, neighborhood, city, state
-        "#,
-    )
-    .bind(&id)
-    .bind(revenda_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-    .ok_or_else(|| AppError::not_found("Company not found"))?;
-
-    Ok(Json(serde_json::to_value(company).unwrap()))
+    Ok(Json(serde_json::to_value(company)?))
 }

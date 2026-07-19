@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
-use sqlx::Type;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, utoipa::ToSchema)]
-#[sqlx(type_name = "UserType", rename_all = "SCREAMING_SNAKE_CASE")]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 pub enum UserType {
     CodesdevsSuperadmin,
     CodesdevsSuporte,
@@ -29,6 +27,40 @@ impl std::fmt::Display for UserType {
             Self::ClienteGerente => write!(f, "CLIENTE_GERENTE"),
             Self::ClienteFuncionario => write!(f, "CLIENTE_FUNCIONARIO"),
             Self::ClienteContador => write!(f, "CLIENTE_CONTADOR"),
+        }
+    }
+}
+
+impl From<UserType> for crate::entities::sea_orm_active_enums::UserType {
+    fn from(ut: UserType) -> Self {
+        match ut {
+            UserType::CodesdevsSuperadmin => Self::CodesdevsSuperadmin,
+            UserType::CodesdevsSuporte => Self::CodesdevsSuporte,
+            UserType::RevendaAdmin => Self::RevendaAdmin,
+            UserType::RevendaSuporte => Self::RevendaSuporte,
+            UserType::RevendaGerente => Self::RevendaGerente,
+            UserType::RevendaContador => Self::RevendaContador,
+            UserType::ClienteAdmin => Self::ClienteAdmin,
+            UserType::ClienteGerente => Self::ClienteGerente,
+            UserType::ClienteFuncionario => Self::ClienteFuncionario,
+            UserType::ClienteContador => Self::ClienteContador,
+        }
+    }
+}
+
+impl From<crate::entities::sea_orm_active_enums::UserType> for UserType {
+    fn from(ut: crate::entities::sea_orm_active_enums::UserType) -> Self {
+        match ut {
+            crate::entities::sea_orm_active_enums::UserType::CodesdevsSuperadmin => Self::CodesdevsSuperadmin,
+            crate::entities::sea_orm_active_enums::UserType::CodesdevsSuporte => Self::CodesdevsSuporte,
+            crate::entities::sea_orm_active_enums::UserType::RevendaAdmin => Self::RevendaAdmin,
+            crate::entities::sea_orm_active_enums::UserType::RevendaSuporte => Self::RevendaSuporte,
+            crate::entities::sea_orm_active_enums::UserType::RevendaGerente => Self::RevendaGerente,
+            crate::entities::sea_orm_active_enums::UserType::RevendaContador => Self::RevendaContador,
+            crate::entities::sea_orm_active_enums::UserType::ClienteAdmin => Self::ClienteAdmin,
+            crate::entities::sea_orm_active_enums::UserType::ClienteGerente => Self::ClienteGerente,
+            crate::entities::sea_orm_active_enums::UserType::ClienteFuncionario => Self::ClienteFuncionario,
+            crate::entities::sea_orm_active_enums::UserType::ClienteContador => Self::ClienteContador,
         }
     }
 }

@@ -1,89 +1,64 @@
-use sqlx::PgPool;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
+};
 use uuid::Uuid;
 
-pub use crate::users::model::{CreateUserRequest, CreateUserResponse, UpdateUserRequest, User, UserResponse};
+use crate::entities::users;
+use crate::common::types::UserType;
+use crate::errors::AppError;
+
+use super::model::{CreateUserRequest, CreateUserResponse, UpdateUserRequest, User, UserResponse};
 
 pub struct UserService {
-    pool: PgPool,
+    db: DatabaseConnection,
 }
 
 impl UserService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
     }
 
-    pub async fn find_by_identifier(&self, identifier: &str) -> Result<User, crate::errors::AppError> {
-        let row = sqlx::query_as::<_, User>(
-            r#"
-            SELECT id, name, email, password_hash, role, revenda_id, active,
-                   created_at, updated_at, must_change_password, cpf, username,
-                   current_company_id, user_type, hashed_refresh_token,
-                   two_factor_secret, is_two_factor_enabled
-            FROM users
-            WHERE email = $1 OR username = $1 OR cpf = $1
-            "#,
-        )
-        .bind(identifier)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| crate::errors::AppError::not_found("User not found"))?;
-
-        Ok(row)
-    }
-
-    pub async fn find_by_id(&self, id: &str) -> Result<User, crate::errors::AppError> {
-        let row = sqlx::query_as::<_, User>(
-            r#"
-            SELECT id, name, email, password_hash, role, revenda_id, active,
-                   created_at, updated_at, must_change_password, cpf, username,
-                   current_company_id, user_type, hashed_refresh_token,
-                   two_factor_secret, is_two_factor_enabled
-            FROM users
-            WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| crate::errors::AppError::not_found("User not found"))?;
-
-        Ok(row)
-    }
-
-    pub async fn list_users(&self, revenda_id: Option<&str>) -> Result<Vec<UserResponse>, crate::errors::AppError> {
-        let rows = if let Some(revenda_id) = revenda_id {
-            sqlx::query_as::<_, User>(
-                r#"
-                SELECT id, name, email, password_hash, role, revenda_id, active,
-                       created_at, updated_at, must_change_password, cpf, username,
-                       current_company_id, user_type, hashed_refresh_token,
-                       two_factor_secret, is_two_factor_enabled
-                FROM users
-                WHERE revenda_id = $1
-                ORDER BY created_at DESC
-                "#,
+    pub async fn find_by_identifier(&self, identifier: &str) -> Result<User, AppError> {
+        let user = users::Entity::find()
+            .filter(
+                sea_orm::Condition::any()
+                    .add(users::Column::Email.eq(identifier))
+                    .add(users::Column::Username.eq(identifier))
+                    .add(users::Column::Cpf.eq(identifier)),
             )
-            .bind(revenda_id)
-            .fetch_all(&self.pool)
+            .one(&self.db)
             .await
-            .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        Ok(user.into())
+    }
+
+    pub async fn find_by_id(&self, id: &str) -> Result<User, AppError> {
+        let user = users::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        Ok(user.into())
+    }
+
+    pub async fn list_users(&self, revenda_id: Option<&str>) -> Result<Vec<UserResponse>, AppError> {
+        let query = users::Entity::find();
+
+        let query = if let Some(rid) = revenda_id {
+            query.filter(users::Column::RevendaId.eq(rid))
         } else {
-            sqlx::query_as::<_, User>(
-                r#"
-                SELECT id, name, email, password_hash, role, revenda_id, active,
-                       created_at, updated_at, must_change_password, cpf, username,
-                       current_company_id, user_type, hashed_refresh_token,
-                       two_factor_secret, is_two_factor_enabled
-                FROM users
-                ORDER BY created_at DESC
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?
+            query
         };
+
+        let rows = query
+            .order_by_desc(users::Column::CreatedAt)
+            .all(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
         Ok(rows.into_iter().map(UserResponse::from).collect())
     }
@@ -91,68 +66,57 @@ impl UserService {
     pub async fn create_user(
         &self,
         request: CreateUserRequest,
-    ) -> Result<CreateUserResponse, crate::errors::AppError> {
-        let existing = sqlx::query_scalar::<_, bool>(
-            r#"SELECT EXISTS(SELECT 1 FROM users WHERE email = $1)"#,
-        )
-        .bind(&request.email)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
+    ) -> Result<CreateUserResponse, AppError> {
+        let existing = users::Entity::find()
+            .filter(users::Column::Email.eq(&request.email))
+            .count(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-        if existing {
-            return Err(crate::errors::AppError::conflict("Email already exists"));
+        if existing > 0 {
+            return Err(AppError::conflict("Email already exists"));
         }
 
-        let existing = sqlx::query_scalar::<_, bool>(
-            r#"SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)"#,
-        )
-        .bind(&request.username)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
+        let existing = users::Entity::find()
+            .filter(users::Column::Username.eq(&request.username))
+            .count(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-        if existing {
-            return Err(crate::errors::AppError::conflict("Username already exists"));
+        if existing > 0 {
+            return Err(AppError::conflict("Username already exists"));
         }
 
         let temporary_password = crate::common::password::generate_random_password(12);
         let password_hash = crate::common::password::hash_password(&temporary_password)
-            .map_err(|e| crate::errors::AppError::internal(format!("Failed to hash password: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to hash password: {}", e)))?;
 
-        let user_type = request.user_type.as_deref()
-            .map(|s| s.parse::<crate::common::types::UserType>())
+        let user_type: crate::entities::sea_orm_active_enums::UserType = request.user_type.as_deref()
+            .map(|s| s.parse::<UserType>())
             .transpose()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid user type"))?
-            .unwrap_or(crate::common::types::UserType::ClienteFuncionario);
-        let revenda_uuid = request.revenda_id.clone();
-        let user_id = Uuid::new_v4().to_string();
+            .map_err(|_| AppError::bad_request("Invalid user type"))?
+            .unwrap_or(UserType::ClienteFuncionario)
+            .into();
 
-        let user = sqlx::query_as::<_, User>(
-            r#"
-            INSERT INTO users (id, name, email, password_hash, role, revenda_id, user_type, username, cpf, must_change_password)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
-            RETURNING id, name, email, password_hash, role, revenda_id, active,
-                      created_at, updated_at, must_change_password, cpf, username,
-                      current_company_id, user_type, hashed_refresh_token,
-                      two_factor_secret, is_two_factor_enabled
-            "#,
-        )
-        .bind(&user_id)
-        .bind(&request.name)
-        .bind(&request.email)
-        .bind(&password_hash)
-        .bind(&request.role)
-        .bind(revenda_uuid)
-        .bind(user_type.to_string())
-        .bind(&request.username)
-        .bind(&request.cpf)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
+        let user = users::ActiveModel {
+            id: Set(Uuid::new_v4().to_string()),
+            name: Set(request.name),
+            email: Set(request.email),
+            password_hash: Set(password_hash),
+            role: Set(request.role),
+            revenda_id: Set(request.revenda_id),
+            user_type: Set(user_type),
+            username: Set(request.username),
+            cpf: Set(request.cpf),
+            must_change_password: Set(true),
+            ..Default::default()
+        };
+
+        let result = user.insert(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
         Ok(CreateUserResponse {
-            user: UserResponse::from(user),
+            user: UserResponse::from(result),
             temporary_password,
         })
     }
@@ -161,62 +125,62 @@ impl UserService {
         &self,
         id: &str,
         request: UpdateUserRequest,
-    ) -> Result<UserResponse, crate::errors::AppError> {
-        let user = self.find_by_id(id).await?;
+    ) -> Result<UserResponse, AppError> {
+        let model = users::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
 
-        let name = request.name.unwrap_or_else(|| user.name.clone());
-        let email = request.email.unwrap_or_else(|| user.email.clone());
-        let username = request.username.unwrap_or_else(|| user.username.clone());
-        let cpf = request.cpf.or(user.cpf);
-        let role = request.role.unwrap_or_else(|| user.role.clone());
-        let active = request.active.unwrap_or(user.active);
+        let mut active: users::ActiveModel = model.into();
 
-        let user_type_str = request.user_type.unwrap_or(user.user_type.to_string());
-        let user_type: crate::common::types::UserType = user_type_str
-            .parse()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid user type"))?;
+        if let Some(name) = request.name {
+            active.name = Set(name);
+        }
+        if let Some(email) = request.email {
+            active.email = Set(email);
+        }
+        if let Some(username) = request.username {
+            active.username = Set(username);
+        }
+        if let Some(cpf) = request.cpf {
+            active.cpf = Set(Some(cpf));
+        }
+        if let Some(role) = request.role {
+            active.role = Set(role);
+        }
+        if let Some(active_flag) = request.active {
+            active.active = Set(active_flag);
+        }
+        if let Some(user_type_str) = request.user_type {
+            let ut: crate::entities::sea_orm_active_enums::UserType = user_type_str
+                .parse::<UserType>()
+                .map_err(|_| AppError::bad_request("Invalid user type"))?
+                .into();
+            active.user_type = Set(ut);
+        }
 
-        let updated_user = sqlx::query_as::<_, User>(
-            r#"
-            UPDATE users
-            SET name = $2, email = $3, username = $4, cpf = $5, role = $6,
-                active = $7, user_type = $8, updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, name, email, password_hash, role, revenda_id, active,
-                      created_at, updated_at, must_change_password, cpf, username,
-                      current_company_id, user_type, hashed_refresh_token,
-                      two_factor_secret, is_two_factor_enabled
-            "#,
-        )
-        .bind(id)
-        .bind(&name)
-        .bind(&email)
-        .bind(&username)
-        .bind(&cpf)
-        .bind(&role)
-        .bind(active)
-        .bind(user_type.to_string())
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| crate::errors::AppError::not_found("User not found"))?;
+        let result = active.update(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-        Ok(UserResponse::from(updated_user))
+        Ok(UserResponse::from(result))
     }
 
     pub async fn update_refresh_token(
         &self,
         user_id: &str,
         hashed_token: Option<&str>,
-    ) -> Result<(), crate::errors::AppError> {
-        sqlx::query(
-            r#"UPDATE users SET hashed_refresh_token = $2, updated_at = NOW() WHERE id = $1"#,
-        )
-        .bind(user_id)
-        .bind(hashed_token)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
+    ) -> Result<(), AppError> {
+        let model = users::Entity::find_by_id(user_id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        let mut active: users::ActiveModel = model.into();
+        active.hashed_refresh_token = Set(hashed_token.map(|s| s.to_string()));
+        active.update(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
         Ok(())
     }
@@ -225,15 +189,17 @@ impl UserService {
         &self,
         user_id: &str,
         company_id: Option<&str>,
-    ) -> Result<(), crate::errors::AppError> {
-        sqlx::query(
-            r#"UPDATE users SET current_company_id = $2, updated_at = NOW() WHERE id = $1"#,
-        )
-        .bind(user_id)
-        .bind(company_id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
+    ) -> Result<(), AppError> {
+        let model = users::Entity::find_by_id(user_id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        let mut active: users::ActiveModel = model.into();
+        active.current_company_id = Set(company_id.map(|s| s.to_string()));
+        active.update(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
         Ok(())
     }
@@ -243,16 +209,18 @@ impl UserService {
         user_id: &str,
         secret: Option<&str>,
         enabled: bool,
-    ) -> Result<(), crate::errors::AppError> {
-        sqlx::query(
-            r#"UPDATE users SET two_factor_secret = $2, is_two_factor_enabled = $3, updated_at = NOW() WHERE id = $1"#,
-        )
-        .bind(user_id)
-        .bind(secret)
-        .bind(enabled)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
+    ) -> Result<(), AppError> {
+        let model = users::Entity::find_by_id(user_id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        let mut active: users::ActiveModel = model.into();
+        active.two_factor_secret = Set(secret.map(|s| s.to_string()));
+        active.is_two_factor_enabled = Set(enabled);
+        active.update(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
         Ok(())
     }
@@ -260,7 +228,7 @@ impl UserService {
     pub async fn generate_2fa_secret(
         &self,
         user_id: &str,
-    ) -> Result<(String, String), crate::errors::AppError> {
+    ) -> Result<(String, String), AppError> {
         let user = self.find_by_id(user_id).await?;
 
         let secret = totp_rs::Secret::generate_secret();
@@ -272,11 +240,11 @@ impl UserService {
             1,
             30,
             secret.to_bytes()
-                .map_err(|e| crate::errors::AppError::internal(format!("Secret error: {}", e)))?,
+                .map_err(|e| AppError::internal(format!("Secret error: {}", e)))?,
             Some("CDS Hub".to_string()),
             user.email.clone(),
         )
-        .map_err(|e| crate::errors::AppError::internal(format!("TOTP error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("TOTP error: {}", e)))?;
 
         let otpauth_url = totp.get_url();
 
@@ -284,7 +252,7 @@ impl UserService {
             use qrcode::QrCode;
             use qrcode::render::svg;
             let code = QrCode::new(otpauth_url.to_string())
-                .map_err(|e| crate::errors::AppError::internal(format!("QR code error: {}", e)))?;
+                .map_err(|e| AppError::internal(format!("QR code error: {}", e)))?;
             let image = code.render::<svg::Color>().build();
             use base64::Engine;
             format!("data:image/svg+xml;base64,{}", base64::engine::general_purpose::STANDARD.encode(image.as_bytes()))
@@ -299,13 +267,13 @@ impl UserService {
         &self,
         user_id: &str,
         code: &str,
-    ) -> Result<(), crate::errors::AppError> {
+    ) -> Result<(), AppError> {
         let user = self.find_by_id(user_id).await?;
 
         let secret = user
             .two_factor_secret
             .as_deref()
-            .ok_or_else(|| crate::errors::AppError::bad_request("2FA secret not generated"))?;
+            .ok_or_else(|| AppError::bad_request("2FA secret not generated"))?;
 
         let totp = totp_rs::TOTP::new(
             totp_rs::Algorithm::SHA1,
@@ -316,14 +284,14 @@ impl UserService {
             Some("CDS Hub".to_string()),
             user.email.clone(),
         )
-        .map_err(|e| crate::errors::AppError::internal(format!("TOTP error: {}", e)))?;
+        .map_err(|e| AppError::internal(format!("TOTP error: {}", e)))?;
 
         let is_valid = totp
             .check_current(code)
-            .map_err(|e| crate::errors::AppError::internal(format!("TOTP verification error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("TOTP verification error: {}", e)))?;
 
         if !is_valid {
-            return Err(crate::errors::AppError::bad_request("Invalid 2FA code"));
+            return Err(AppError::bad_request("Invalid 2FA code"));
         }
 
         self.update_two_factor_secret(user_id, Some(secret), true).await
@@ -332,7 +300,7 @@ impl UserService {
     pub async fn turn_off_2fa(
         &self,
         user_id: &str,
-    ) -> Result<(), crate::errors::AppError> {
+    ) -> Result<(), AppError> {
         self.update_two_factor_secret(user_id, None, false).await
     }
 
@@ -341,27 +309,30 @@ impl UserService {
         user_id: &str,
         old_password: &str,
         new_password: &str,
-    ) -> Result<(), crate::errors::AppError> {
+    ) -> Result<(), AppError> {
         let user = self.find_by_id(user_id).await?;
 
         let valid = crate::common::password::verify_password(old_password, &user.password_hash)
-            .map_err(|e| crate::errors::AppError::internal(format!("Password verification error: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Password verification error: {}", e)))?;
 
         if !valid {
-            return Err(crate::errors::AppError::unauthorized("Current password is incorrect"));
+            return Err(AppError::unauthorized("Current password is incorrect"));
         }
 
         let new_hash = crate::common::password::hash_password(new_password)
-            .map_err(|e| crate::errors::AppError::internal(format!("Failed to hash password: {}", e)))?;
+            .map_err(|e| AppError::internal(format!("Failed to hash password: {}", e)))?;
 
-        sqlx::query(
-            r#"UPDATE users SET password_hash = $2, must_change_password = false, updated_at = NOW() WHERE id = $1"#,
-        )
-        .bind(user_id)
-        .bind(&new_hash)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
+        let model = users::Entity::find_by_id(user_id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        let mut active: users::ActiveModel = model.into();
+        active.password_hash = Set(new_hash);
+        active.must_change_password = Set(false);
+        active.update(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
         Ok(())
     }

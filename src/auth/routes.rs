@@ -3,13 +3,16 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde_json::{json, Value};
-use sqlx::PgPool;
+
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 
 use crate::auth::jwt::{create_temp_2fa_token, create_token_pair, decode_token};
 use crate::auth::middleware::AuthUser;
 use crate::auth::sessions::{SessionService, SessionResponse};
 use crate::common::password::verify_password;
 use crate::common::types::UserType;
+use crate::common::validation;
+use crate::entities::{companies, user_companies};
 use crate::errors::AppError;
 use crate::users::service::UserService;
 use crate::AppState;
@@ -48,7 +51,14 @@ pub async fn login(
     State(state): State<AppState>,
     Json(request): Json<LoginRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let user_service = UserService::new(state.pool.clone());
+    if request.identifier.trim().is_empty() {
+        return Err(AppError::bad_request("Identifier cannot be empty"));
+    }
+    if request.password.is_empty() {
+        return Err(AppError::bad_request("Password cannot be empty"));
+    }
+
+    let user_service = UserService::new(state.db.clone());
     let user = match user_service.find_by_identifier(&request.identifier).await {
         Ok(u) => u,
         Err(e) => {
@@ -114,7 +124,7 @@ pub async fn verify_2fa(
         return Err(AppError::unauthorized("Invalid token type"));
     }
 
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
     let user = user_service.find_by_id(&claims.sub).await?;
 
     let secret = user
@@ -167,7 +177,7 @@ pub async fn refresh_token(
         return Err(AppError::unauthorized("Invalid token type"));
     }
 
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
     let session_service = SessionService::new(state.db.clone());
 
     let user = user_service.find_by_id(&claims.sub).await?;
@@ -205,7 +215,7 @@ pub async fn logout(
     auth: AuthUser,
 ) -> Result<StatusCode, AppError> {
     let session_service = SessionService::new(state.db.clone());
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
 
     session_service
         .revoke_session(&auth.user_id, &auth.session_id)
@@ -234,7 +244,7 @@ pub async fn switch_company(
     auth: AuthUser,
     Json(request): Json<SwitchCompanyRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
 
     let user_type: UserType = auth.user_type.parse()
         .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
@@ -246,18 +256,15 @@ pub async fn switch_company(
         }
         UserType::RevendaAdmin | UserType::RevendaSuporte | UserType::RevendaGerente | UserType::RevendaContador => {
             if let Some(revenda_id) = &auth.revenda_id {
-    let company_uuid: &str = &request.company_id;
+                let belongs = companies::Entity::find()
+                    .filter(companies::Column::Id.eq(&request.company_id))
+                    .filter(companies::Column::RevendaId.eq(revenda_id))
+                    .filter(companies::Column::Active.eq(true))
+                    .count(&state.db)
+                    .await
+                    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-    let belongs = sqlx::query_scalar::<_, bool>(
-        r#"SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1 AND revenda_id = $2 AND active = true)"#,
-    )
-    .bind(company_uuid)
-    .bind(revenda_id)
-                .fetch_one(&state.pool)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-                if !belongs {
+                if belongs == 0 {
                     return Err(AppError::forbidden("Access denied to this company"));
                 }
             } else {
@@ -265,16 +272,14 @@ pub async fn switch_company(
             }
         }
         _ => {
-            let has_access = sqlx::query_scalar::<_, bool>(
-                r#"SELECT EXISTS(SELECT 1 FROM user_companies WHERE user_id = $1 AND company_id = $2)"#,
-            )
-            .bind(&auth.user_id)
-            .bind(&request.company_id)
-            .fetch_one(&state.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            let has_access = user_companies::Entity::find()
+                .filter(user_companies::Column::UserId.eq(&auth.user_id))
+                .filter(user_companies::Column::CompanyId.eq(&request.company_id))
+                .count(&state.db)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-            if !has_access {
+            if has_access == 0 {
                 return Err(AppError::forbidden("Access denied to this company"));
             }
         }
@@ -286,14 +291,11 @@ pub async fn switch_company(
         .await?;
 
     // Get company info for response
-    let company = sqlx::query_as::<_, (String, Option<String>, String)>(
-        r#"SELECT id, subdomain, name FROM companies WHERE id = $1"#,
-    )
-    .bind(&request.company_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-    .ok_or_else(|| AppError::not_found("Company not found"))?;
+    let company = companies::Entity::find_by_id(&request.company_id)
+        .one(&state.db)
+        .await
+        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+        .ok_or_else(|| AppError::not_found("Company not found"))?;
 
     // Generate new tokens with updated company context
     let session_service = SessionService::new(state.db.clone());
@@ -307,9 +309,6 @@ pub async fn switch_company(
         .await
         .map_err(|e| AppError::internal(format!("Session creation error: {}", e)))?;
 
-    // Get user's systems
-    let systems = get_user_systems(&state.pool, &auth.user_id, &request.company_id).await?;
-
     let tokens = create_token_pair(
         &auth.user_id,
         &auth.email,
@@ -317,10 +316,9 @@ pub async fn switch_company(
         &auth.role,
         auth.revenda_id.as_deref(),
         Some(&request.company_id),
-        company.1.as_deref(),
+        Some(company.subdomain.as_str()),
         auth.company_role.as_deref(),
         &session.id.to_string(),
-        systems,
         &state.config.jwt_secret,
         &state.config.refresh_token_secret,
         state.config.jwt_expiration_hours,
@@ -334,9 +332,9 @@ pub async fn switch_company(
             "access_token": tokens.access_token,
             "refresh_token": tokens.refresh_token,
             "currentCompany": {
-                "id": company.0,
-                "name": company.2,
-                "subdomain": company.1,
+                "id": company.id,
+                "name": company.name,
+                "subdomain": company.subdomain,
             },
         })),
     ))
@@ -358,64 +356,37 @@ pub async fn companies_context(
     let user_type: UserType = auth.user_type.parse()
         .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
 
-    #[derive(sqlx::FromRow)]
-    struct CompanyRow {
-        id: String,
-        name: String,
-        subdomain: Option<String>,
-        document: Option<String>,
-        revenda_id: Option<String>,
-        parent_company_id: Option<String>,
-        active: bool,
-        sgbm_schema: Option<String>,
-    }
-
     let companies = match user_type {
         UserType::CodesdevsSuperadmin | UserType::CodesdevsSuporte => {
-            sqlx::query_as::<_, CompanyRow>(
-                r#"
-                SELECT id, name, subdomain, document, revenda_id, parent_company_id, active, sgbm_schema
-                FROM companies
-                WHERE active = true
-                ORDER BY name
-                "#,
-            )
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            companies::Entity::find()
+                .filter(companies::Column::Active.eq(true))
+                .order_by(companies::Column::Name, sea_orm::Order::Asc)
+                .all(&state.db)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         }
         UserType::RevendaAdmin | UserType::RevendaSuporte | UserType::RevendaGerente | UserType::RevendaContador => {
             if let Some(revenda_id) = &auth.revenda_id {
-                sqlx::query_as::<_, CompanyRow>(
-                    r#"
-                    SELECT id, name, subdomain, document, revenda_id, parent_company_id, active, sgbm_schema
-                    FROM companies
-                    WHERE revenda_id = $1 AND active = true
-                    ORDER BY name
-                    "#,
-                )
-                .bind(revenda_id)
-                .fetch_all(&state.pool)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+                companies::Entity::find()
+                    .filter(companies::Column::RevendaId.eq(revenda_id))
+                    .filter(companies::Column::Active.eq(true))
+                    .order_by(companies::Column::Name, sea_orm::Order::Asc)
+                    .all(&state.db)
+                    .await
+                    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
             } else {
                 vec![]
             }
         }
         _ => {
-            sqlx::query_as::<_, CompanyRow>(
-                r#"
-                SELECT c.id, c.name, c.subdomain, c.document, c.revenda_id, c.parent_company_id, c.active, c.sgbm_schema
-                FROM companies c
-                INNER JOIN user_companies uc ON c.id = uc.company_id
-                WHERE uc.user_id = $1 AND c.active = true
-                ORDER BY c.name
-                "#,
-            )
-            .bind(&auth.user_id)
-            .fetch_all(&state.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            companies::Entity::find()
+                .inner_join(user_companies::Entity)
+                .filter(user_companies::Column::UserId.eq(&auth.user_id))
+                .filter(companies::Column::Active.eq(true))
+                .order_by(companies::Column::Name, sea_orm::Order::Asc)
+                .all(&state.db)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         }
     };
 
@@ -426,7 +397,7 @@ pub async fn companies_context(
                 "id": c.id,
                 "name": c.name,
                 "subdomain": c.subdomain,
-                "sgbmSchema": c.sgbm_schema,
+                "sgbmSchema": c.schema_name,
                 "document": c.document,
                 "revendaId": c.revenda_id,
                 "parentCompanyId": c.parent_company_id,
@@ -443,7 +414,7 @@ pub async fn companies_context(
                 "id": c.id,
                 "name": c.name,
                 "subdomain": c.subdomain,
-                "sgbmSchema": c.sgbm_schema,
+                "sgbmSchema": c.schema_name,
             })
         })
     } else {
@@ -452,7 +423,7 @@ pub async fn companies_context(
                 "id": c.id,
                 "name": c.name,
                 "subdomain": c.subdomain,
-                "sgbmSchema": c.sgbm_schema,
+                "sgbmSchema": c.schema_name,
             })
         })
     };
@@ -557,7 +528,7 @@ pub async fn generate_2fa(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
     let (secret, qr_code_data_url) = user_service.generate_2fa_secret(&auth.user_id).await?;
 
     Ok(Json(json!({
@@ -581,7 +552,7 @@ pub async fn turn_on_2fa(
     auth: AuthUser,
     Json(request): Json<TwoFAVerifyRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
     user_service.turn_on_2fa(&auth.user_id, &request.code).await?;
 
     Ok(Json(json!({
@@ -602,7 +573,7 @@ pub async fn turn_off_2fa(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
     user_service.turn_off_2fa(&auth.user_id).await?;
 
     Ok(Json(json!({
@@ -626,11 +597,12 @@ pub async fn change_password(
     auth: AuthUser,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<Json<Value>, AppError> {
-    if request.new_password.len() < 6 {
-        return Err(AppError::bad_request("New password must be at least 6 characters"));
+    if request.old_password.is_empty() {
+        return Err(AppError::bad_request("Current password cannot be empty"));
     }
+    validation::validate_password(&request.new_password)?;
 
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
     user_service
         .change_password(&auth.user_id, &request.old_password, &request.new_password)
         .await?;
@@ -682,41 +654,24 @@ async fn generate_auth_response_with_session(
             .map_err(|e| AppError::internal(format!("Session creation error: {}", e)))?
     };
 
-    // Get user's companies for CLIENTE_* types
-    let (company_id, schema_name, systems) = match user.user_type {
+    // Get user's default company for CLIENTE_* types
+    let company_id = match user.user_type {
         UserType::ClienteAdmin
         | UserType::ClienteGerente
         | UserType::ClienteFuncionario
         | UserType::ClienteContador => {
-            #[derive(sqlx::FromRow)]
-            struct CompanyDefault {
-                id: String,
-                subdomain: Option<String>,
-            }
+            let default_company = companies::Entity::find()
+                .inner_join(user_companies::Entity)
+                .filter(user_companies::Column::UserId.eq(&user.id))
+                .filter(companies::Column::Active.eq(true))
+                .order_by_desc(user_companies::Column::IsDefault)
+                .one(&state.db)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-            let default_company = sqlx::query_as::<_, CompanyDefault>(
-                r#"
-                SELECT c.id, c.subdomain
-                FROM companies c
-                INNER JOIN user_companies uc ON c.id = uc.company_id
-                WHERE uc.user_id = $1 AND c.active = true
-                ORDER BY uc.is_default DESC
-                LIMIT 1
-                "#,
-            )
-            .bind(&user.id)
-            .fetch_optional(&state.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-            if let Some(company) = default_company {
-                let systems = get_user_systems(&state.pool, &user.id, &company.id.to_string()).await?;
-                (Some(company.id), company.subdomain, systems)
-            } else {
-                (None, None, vec![])
-            }
+            default_company.map(|c| c.id)
         }
-        _ => (None, None, vec![]),
+        _ => None,
     };
 
     let tokens = create_token_pair(
@@ -726,10 +681,9 @@ async fn generate_auth_response_with_session(
         &user.role,
         user.revenda_id.as_ref().map(|u| u.to_string()).as_deref(),
         company_id.as_ref().map(|u| u.to_string()).as_deref(),
-        schema_name.as_deref(),
+        None,
         Some(&user.role),
         &session.id.to_string(),
-        systems,
         &state.config.jwt_secret,
         &state.config.refresh_token_secret,
         state.config.jwt_expiration_hours,
@@ -741,7 +695,7 @@ async fn generate_auth_response_with_session(
     let refresh_hash = crate::common::password::hash_password(&tokens.refresh_token)
         .map_err(|e| AppError::internal(format!("Failed to hash refresh token: {}", e)))?;
 
-    let user_service = UserService::new(state.pool.clone());
+    let user_service = UserService::new(state.db.clone());
     user_service
         .update_refresh_token(&user.id.to_string(), Some(&refresh_hash))
         .await?;
@@ -760,26 +714,6 @@ async fn generate_auth_response_with_session(
             "isTwoFactorEnabled": user.is_two_factor_enabled,
         },
     }))
-}
-
-async fn get_user_systems(
-    pool: &PgPool,
-    _user_id: &str,
-    company_id: &str,
-) -> Result<Vec<String>, AppError> {
-    let rows = sqlx::query_scalar::<_, String>(
-        r#"
-        SELECT system_slug
-        FROM company_systems
-        WHERE company_id = $1 AND active = true
-        "#,
-    )
-    .bind(company_id)
-    .fetch_all(pool)
-    .await
-    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-    Ok(rows)
 }
 
 fn extract_refresh_token(request: &axum::http::Request<axum::body::Body>) -> Result<String, AppError> {
