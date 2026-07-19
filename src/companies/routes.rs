@@ -31,7 +31,7 @@ pub async fn create_company(
     auth: AuthUser,
     Json(request): Json<CreateCompanyRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Create, "Company").await?;
+    check_permission(&state.db, &auth.user_type, Action::Create, "Company").await?;
 
     let service = CompanyService::new(state.pool.clone());
     let company = service.create(request).await?;
@@ -58,7 +58,7 @@ pub async fn list_companies(
     auth: AuthUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Company").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Company").await?;
 
     let service = CompanyService::new(state.pool.clone());
     let revenda_id = params.get("revendaId").map(|s| s.as_str());
@@ -84,7 +84,7 @@ pub async fn get_company(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Company").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Company").await?;
 
     let service = CompanyService::new(state.pool.clone());
     let company = service.find_by_id(&id).await?;
@@ -111,7 +111,7 @@ pub async fn update_company(
     Path(id): Path<String>,
     Json(request): Json<UpdateCompanyRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Company").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.pool.clone());
     let company = service.update(&id, request).await?;
@@ -136,7 +136,7 @@ pub async fn delete_company(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Delete, "Company").await?;
+    check_permission(&state.db, &auth.user_type, Action::Delete, "Company").await?;
 
     let service = CompanyService::new(state.pool.clone());
     service.soft_delete(&id).await?;
@@ -161,7 +161,7 @@ pub async fn enable_demo(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Company").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.pool.clone());
     let company = service.set_demo_mode(&id, true).await?;
@@ -186,7 +186,7 @@ pub async fn disable_demo(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Company").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.pool.clone());
     let company = service.set_demo_mode(&id, false).await?;

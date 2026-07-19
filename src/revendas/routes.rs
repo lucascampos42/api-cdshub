@@ -86,7 +86,7 @@ pub async fn get_revenda(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Revenda").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Revenda").await?;
 
     let service = RevendaService::new(state.pool.clone());
     let (revenda, systems) = service.find_by_id(&id).await?;
@@ -116,7 +116,7 @@ pub async fn update_revenda(
     Path(id): Path<String>,
     Json(request): Json<UpdateRevendaRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Revenda").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Revenda").await?;
 
     let service = RevendaService::new(state.pool.clone());
     let (revenda, systems) = service.update(&id, request).await?;
@@ -144,7 +144,7 @@ pub async fn delete_revenda(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Delete, "Revenda").await?;
+    check_permission(&state.db, &auth.user_type, Action::Delete, "Revenda").await?;
 
     let service = RevendaService::new(state.pool.clone());
     service.delete(&id).await?;

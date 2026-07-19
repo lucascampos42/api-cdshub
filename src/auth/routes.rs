@@ -308,7 +308,7 @@ pub async fn switch_company(
         .map_err(|e| AppError::internal(format!("Session creation error: {}", e)))?;
 
     // Get user's systems
-    let systems = get_user_systems(&state.pool, &auth.user_id, &request.company_id).await?;
+    let systems = get_user_systems(&state.db, &auth.user_id, &request.company_id).await?;
 
     let tokens = create_token_pair(
         &auth.user_id,
@@ -380,7 +380,7 @@ pub async fn companies_context(
                 ORDER BY name
                 "#,
             )
-            .fetch_all(&state.pool)
+            .fetch_all(&state.db)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         }
@@ -395,7 +395,7 @@ pub async fn companies_context(
                     "#,
                 )
                 .bind(revenda_id)
-                .fetch_all(&state.pool)
+                .fetch_all(&state.db)
                 .await
                 .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
             } else {
@@ -413,7 +413,7 @@ pub async fn companies_context(
                 "#,
             )
             .bind(&auth.user_id)
-            .fetch_all(&state.pool)
+            .fetch_all(&state.db)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         }
@@ -658,6 +658,7 @@ async fn generate_auth_response_with_session(
 
     let session: SessionResponse = if let Some(session_id) = existing_session_id {
         // Reuse existing session info via SeaORM
+        use std::str::FromStr;
         use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
         use crate::entities::sessions as sessions_entity;
 

@@ -31,8 +31,8 @@ impl From<sessions::Model> for SessionResponse {
             user_id: m.user_id,
             ip: m.ip,
             user_agent: m.user_agent,
-            created_at: m.created_at.naive_utc(),
-            expires_at: m.expires_at.naive_utc(),
+            created_at: m.created_at.and_utc(),
+            expires_at: m.expires_at.and_utc(),
         }
     }
 }
@@ -49,14 +49,14 @@ impl SessionService {
         user_agent: Option<&str>,
         expires_in_days: i64,
     ) -> Result<SessionResponse, sea_orm::DbErr> {
-        let expires_at = (Utc::now() + chrono::Duration::days(expires_in_days)).naive_utc();
+        let expires_at = (Utc::now() + chrono::Duration::days(expires_in_days)).and_utc();
 
         let model = sessions::ActiveModel {
             id: Set(Uuid::new_v4().to_string()),
             user_id: Set(user_id.to_string()),
             ip: Set(ip.map(|s| s.to_string())),
             user_agent: Set(user_agent.map(|s| s.to_string())),
-            created_at: Set(Utc::now().naive_utc().into()),
+            created_at: Set(Utc::now().and_utc().into()),
             expires_at: Set(expires_at.into()),
         };
 
@@ -72,7 +72,7 @@ impl SessionService {
         let count = sessions::Entity::find()
             .filter(sessions::Column::UserId.eq(user_id))
             .filter(sessions::Column::Id.eq(session_id))
-            .filter(sessions::Column::ExpiresAt.gte(Utc::now().naive_utc()))
+            .filter(sessions::Column::ExpiresAt.gte(Utc::now().and_utc()))
             .count(&self.db)
             .await?;
 
@@ -85,7 +85,7 @@ impl SessionService {
     ) -> Result<Vec<SessionResponse>, sea_orm::DbErr> {
         let rows = sessions::Entity::find()
             .filter(sessions::Column::UserId.eq(user_id))
-            .filter(sessions::Column::ExpiresAt.gte(Utc::now().naive_utc()))
+            .filter(sessions::Column::ExpiresAt.gte(Utc::now().and_utc()))
             .order_by_desc(sessions::Column::CreatedAt)
             .all(&self.db)
             .await?;

@@ -43,7 +43,8 @@ pub async fn create_client(
 
     Ok((
         StatusCode::CREATED,
-        Json(serde_json::to_value(client).unwrap()),
+        let client = service.create(request).await?;
+                Json(serde_json::to_value(client).unwrap()),
     ))
 }
 

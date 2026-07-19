@@ -1,9 +1,11 @@
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+};
 use uuid::Uuid;
 
+use super::model::{Client, CreateClientRequest, UpdateClientRequest};
 use crate::entities::{clients as clients_entity, companies as companies_entity, company_systems};
 use crate::errors::AppError;
-use super::model::{Client, CreateClientRequest, UpdateClientRequest};
 
 pub struct ClientService {
     db: DatabaseConnection,
@@ -34,8 +36,8 @@ impl ClientService {
             neighborhood: m.neighborhood,
             city: m.city,
             state: m.state,
-            created_at: m.created_at.naive_utc(),
-            updated_at: m.updated_at.naive_utc(),
+            created_at: m.created_at.and_utc(),
+            updated_at: m.updated_at.and_utc(),
         }
     }
 
@@ -62,8 +64,7 @@ impl ClientService {
             neighborhood: Set(request.neighborhood),
             city: Set(request.city),
             state: Set(request.state),
-            created_at: Set(chrono::Utc::now().into()),
-            updated_at: Set(chrono::Utc::now().into()),
+            created_at: Set(NaiveDateTime::from(Utc::now().date())),
         };
 
         let result = model.insert(&self.db).await?;
@@ -83,9 +84,16 @@ impl ClientService {
         client: &Client,
         system_ids: &[String],
     ) -> Result<(), AppError> {
-        let generated_subdomain = client.name
+        let generated_subdomain = client
+            .name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect::<String>()
             .to_lowercase();
 
@@ -168,23 +176,53 @@ impl ClientService {
         if let Some(name) = request.name {
             active.name = Set(name);
         }
-        if let Some(v) = request.document { active.document = Set(Some(v)); }
-        if let Some(v) = request.document_type { active.document_type = Set(Some(v)); }
-        if let Some(v) = request.email { active.email = Set(Some(v)); }
-        if let Some(v) = request.phone { active.phone = Set(Some(v)); }
-        if let Some(v) = request.legal_rep_name { active.legal_rep_name = Set(Some(v)); }
-        if let Some(v) = request.legal_rep_document { active.legal_rep_document = Set(Some(v)); }
-        if let Some(v) = request.legal_rep_email { active.legal_rep_email = Set(Some(v)); }
-        if let Some(v) = request.legal_rep_phone { active.legal_rep_phone = Set(Some(v)); }
-        if let Some(v) = request.zip_code { active.zip_code = Set(Some(v)); }
-        if let Some(v) = request.street { active.street = Set(Some(v)); }
-        if let Some(v) = request.number { active.number = Set(Some(v)); }
-        if let Some(v) = request.complement { active.complement = Set(Some(v)); }
-        if let Some(v) = request.neighborhood { active.neighborhood = Set(Some(v)); }
-        if let Some(v) = request.city { active.city = Set(Some(v)); }
-        if let Some(v) = request.state { active.state = Set(Some(v)); }
+        if let Some(v) = request.document {
+            active.document = Set(Some(v));
+        }
+        if let Some(v) = request.document_type {
+            active.document_type = Set(Some(v));
+        }
+        if let Some(v) = request.email {
+            active.email = Set(Some(v));
+        }
+        if let Some(v) = request.phone {
+            active.phone = Set(Some(v));
+        }
+        if let Some(v) = request.legal_rep_name {
+            active.legal_rep_name = Set(Some(v));
+        }
+        if let Some(v) = request.legal_rep_document {
+            active.legal_rep_document = Set(Some(v));
+        }
+        if let Some(v) = request.legal_rep_email {
+            active.legal_rep_email = Set(Some(v));
+        }
+        if let Some(v) = request.legal_rep_phone {
+            active.legal_rep_phone = Set(Some(v));
+        }
+        if let Some(v) = request.zip_code {
+            active.zip_code = Set(Some(v));
+        }
+        if let Some(v) = request.street {
+            active.street = Set(Some(v));
+        }
+        if let Some(v) = request.number {
+            active.number = Set(Some(v));
+        }
+        if let Some(v) = request.complement {
+            active.complement = Set(Some(v));
+        }
+        if let Some(v) = request.neighborhood {
+            active.neighborhood = Set(Some(v));
+        }
+        if let Some(v) = request.city {
+            active.city = Set(Some(v));
+        }
+        if let Some(v) = request.state {
+            active.state = Set(Some(v));
+        }
 
-        active.updated_at = Set(chrono::Utc::now().into());
+        active.updated_at = Set(NaiveDateTime::from(Utc::now().date()));
 
         let result = active.update(&self.db).await?;
         Ok(Self::model_to_client(result))

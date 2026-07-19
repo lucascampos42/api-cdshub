@@ -25,7 +25,7 @@ pub async fn create_user(
     auth: AuthUser,
     Json(request): Json<CreateUserRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Create, "User").await?;
+    check_permission(&state.db, &auth.user_type, Action::Create, "User").await?;
 
     let service = UserService::new(state.pool.clone());
     let result = service.create_user(request).await?;
@@ -52,7 +52,7 @@ pub async fn list_users(
     auth: AuthUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "User").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "User").await?;
 
     let service = UserService::new(state.pool.clone());
     let revenda_id = params.get("revendaId").map(|s| s.as_str());
@@ -78,7 +78,7 @@ pub async fn get_user(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "User").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "User").await?;
 
     let service = UserService::new(state.pool.clone());
     let user = service.find_by_id(&id).await?;
@@ -108,7 +108,7 @@ pub async fn update_user(
     Path(id): Path<String>,
     Json(request): Json<UpdateUserRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "User").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "User").await?;
 
     let service = UserService::new(state.pool.clone());
     let user = service.update_user(&id, request).await?;
