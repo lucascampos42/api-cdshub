@@ -62,7 +62,7 @@ pub async fn list_companies(
 
     let service = CompanyService::new(state.db.clone());
     let revenda_id = params.get("revendaId").map(|s| s.as_str());
-    let companies = service.find_all(revenda_id).await?
+    let companies = service.find_all(revenda_id).await?;
 
     Ok(Json(serde_json::to_value(companies).unwrap()))
 }
@@ -87,7 +87,7 @@ pub async fn get_company(
     check_permission(&state.db, &auth.user_type, Action::Read, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
-    let company = service.find_by_id(&id).await?
+    let company = service.find_by_id(&id).await?;
 
     Ok(Json(serde_json::to_value(company).unwrap()))
 }
@@ -114,7 +114,7 @@ pub async fn update_company(
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
-    let company = service.update(&id, request).await?
+    let company = service.update(&id, request).await?;
 
     Ok(Json(serde_json::to_value(company).unwrap()))
 }
@@ -139,7 +139,7 @@ pub async fn delete_company(
     check_permission(&state.db, &auth.user_type, Action::Delete, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
-    service.soft_delete(&id).await?
+    service.soft_delete(&id).await?;
 
     Ok(StatusCode::OK)
 }
@@ -164,7 +164,7 @@ pub async fn enable_demo(
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
-    let company = service.set_demo_mode(&id, true).await?
+    let company = service.set_demo_mode(&id, true).await?;
 
     Ok(Json(serde_json::to_value(company).unwrap()))
 }
@@ -189,7 +189,7 @@ pub async fn disable_demo(
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
-    let company = service.set_demo_mode(&id, false).await?
+    let company = service.set_demo_mode(&id, false).await?;
 
     Ok(Json(serde_json::to_value(company).unwrap()))
 }

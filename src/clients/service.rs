@@ -1,3 +1,4 @@
+use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
@@ -36,8 +37,8 @@ impl ClientService {
             neighborhood: m.neighborhood,
             city: m.city,
             state: m.state,
-            created_at: m.created_at.and_utc(),
-            updated_at: m.updated_at.and_utc(),
+            created_at: m.created_at,
+            updated_at: m.updated_at,
         }
     }
 
@@ -64,7 +65,8 @@ impl ClientService {
             neighborhood: Set(request.neighborhood),
             city: Set(request.city),
             state: Set(request.state),
-            created_at: Set(NaiveDateTime::from(Utc::now().date())),
+            created_at: Set(Utc::now().naive_utc()),
+            updated_at: Set(Utc::now().naive_utc()),
         };
 
         let result = model.insert(&self.db).await?;
@@ -131,7 +133,7 @@ impl ClientService {
                 company_id: Set(company_result.id.clone()),
                 system_slug: Set(slug.clone()),
                 active: Set(true),
-                created_at: Set(chrono::Utc::now().into()),
+                created_at: Set(chrono::Utc::now().naive_utc()),
             };
             cs.insert(&self.db).await?;
         }
@@ -222,7 +224,7 @@ impl ClientService {
             active.state = Set(Some(v));
         }
 
-        active.updated_at = Set(NaiveDateTime::from(Utc::now().date()));
+        active.updated_at = Set(Utc::now().naive_utc());
 
         let result = active.update(&self.db).await?;
         Ok(Self::model_to_client(result))

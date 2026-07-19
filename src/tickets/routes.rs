@@ -163,7 +163,7 @@ pub async fn delete_ticket(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Delete, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Delete, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     service.delete(&id).await?;
@@ -190,7 +190,7 @@ pub async fn add_action(
     Path(ticket_id): Path<String>,
     Json(request): Json<CreateActionRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Update, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let action = service.add_action(&ticket_id, &auth.user_id, &request.content).await?;
@@ -217,7 +217,7 @@ pub async fn get_actions(
     auth: AuthUser,
     Path(ticket_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Read, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let actions = service.get_actions(&ticket_id).await?;

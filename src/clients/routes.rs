@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 
-use super::model::{UpdateClientRequest};
+use super::model::{CreateClientRequest, UpdateClientRequest};
 use super::service::ClientService;
 use crate::auth::middleware::AuthUser;
 use crate::errors::AppError;
@@ -122,7 +122,7 @@ pub async fn update_client(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Update, "Client").await?;
 
-    let service = ClientService::new(state.pool.clone());
+    let service = ClientService::new(state.db.clone());
     let client = service.update(&id, request).await?;
 
     Ok(Json(serde_json::to_value(client).unwrap()))

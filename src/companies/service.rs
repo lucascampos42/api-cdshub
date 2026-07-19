@@ -1,197 +1,181 @@
-use sqlx::PgPool;
+use chrono::Utc;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+};
 use uuid::Uuid;
 
+use crate::entities::companies as companies_entity;
 use crate::errors::AppError;
 use super::model::{Company, CreateCompanyRequest, UpdateCompanyRequest};
 
 pub struct CompanyService {
-    pool: PgPool,
+    db: DatabaseConnection,
 }
 
 impl CompanyService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
+    }
+
+    fn model_to_company(m: companies_entity::Model) -> Company {
+        Company {
+            id: m.id,
+            name: m.name,
+            revenda_id: m.revenda_id,
+            client_id: m.client_id,
+            subdomain: Some(m.subdomain),
+            active: m.active,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+            schema_name: m.schema_name,
+            parent_company_id: m.parent_company_id,
+            parent_revenda_id: None,
+            db_connection_string: m.db_connection_string,
+            email: m.email,
+            phone: m.phone,
+            document: m.document,
+            document_type: m.document_type,
+            zip_code: m.zip_code,
+            street: m.street,
+            number: m.number,
+            complement: m.complement,
+            neighborhood: m.neighborhood,
+            city: m.city,
+            state: m.state,
+        }
     }
 
     pub async fn create(&self, request: CreateCompanyRequest) -> Result<Company, AppError> {
-        let revenda_id = request.revenda_id.clone();
-        let client_id = request.client_id.clone();
-        let parent_company_id = request.parent_company_id.clone();
-        let parent_revenda_id = request.parent_revenda_id.clone();
         let company_id = Uuid::new_v4().to_string();
 
-        let company = sqlx::query_as::<_, Company>(
-            r#"
-            INSERT INTO companies (
-                id, name, revenda_id, client_id, subdomain, active, schema_name,
-                parent_company_id, parent_revenda_id, db_connection_string,
-                email, phone, document, document_type,
-                zip_code, street, number, complement, neighborhood, city, state
-            )
-            VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
-            RETURNING id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
-                      schema_name, parent_company_id, parent_revenda_id, db_connection_string,
-                      email, phone, document, document_type,
-                      zip_code, street, number, complement, neighborhood, city, state
-            "#,
-        )
-        .bind(&company_id)
-        .bind(&request.name)
-        .bind(revenda_id)
-        .bind(client_id)
-        .bind(&request.subdomain)
-        .bind(&request.schema_name)
-        .bind(parent_company_id)
-        .bind(parent_revenda_id)
-        .bind(&request.db_connection_string)
-        .bind(&request.email)
-        .bind(&request.phone)
-        .bind(&request.document)
-        .bind(&request.document_type)
-        .bind(&request.zip_code)
-        .bind(&request.street)
-        .bind(&request.number)
-        .bind(&request.complement)
-        .bind(&request.neighborhood)
-        .bind(&request.city)
-        .bind(&request.state)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let model = companies_entity::ActiveModel {
+            id: Set(company_id),
+            name: Set(request.name),
+            revenda_id: Set(request.revenda_id),
+            client_id: Set(request.client_id),
+            subdomain: Set(request.subdomain.unwrap_or_default()),
+            schema_name: Set(request.schema_name),
+            parent_company_id: Set(request.parent_company_id),
+            db_connection_string: Set(request.db_connection_string),
+            active: Set(true),
+            email: Set(request.email),
+            phone: Set(request.phone),
+            document: Set(request.document),
+            document_type: Set(request.document_type),
+            zip_code: Set(request.zip_code),
+            street: Set(request.street),
+            number: Set(request.number),
+            complement: Set(request.complement),
+            neighborhood: Set(request.neighborhood),
+            city: Set(request.city),
+            state: Set(request.state),
+            created_at: Set(Utc::now().naive_utc()),
+            updated_at: Set(Utc::now().naive_utc()),
+            ..Default::default()
+        };
 
-        Ok(company)
+        let result = model.insert(&self.db).await?;
+        Ok(Self::model_to_company(result))
     }
 
     pub async fn find_all(&self, revenda_id: Option<&str>) -> Result<Vec<Company>, AppError> {
-        let rows = if let Some(revenda_id) = revenda_id {
-            sqlx::query_as::<_, Company>(
-                r#"
-                SELECT id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
-                       schema_name, parent_company_id, parent_revenda_id, db_connection_string,
-                       email, phone, document, document_type,
-                       zip_code, street, number, complement, neighborhood, city, state
-                FROM companies
-                WHERE revenda_id = $1
-                ORDER BY created_at DESC
-                "#,
-            )
-            .bind(revenda_id)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+        let query = companies_entity::Entity::find();
+
+        let query = if let Some(rid) = revenda_id {
+            query.filter(companies_entity::Column::RevendaId.eq(rid))
         } else {
-            sqlx::query_as::<_, Company>(
-                r#"
-                SELECT id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
-                       schema_name, parent_company_id, parent_revenda_id, db_connection_string,
-                       email, phone, document, document_type,
-                       zip_code, street, number, complement, neighborhood, city, state
-                FROM companies
-                ORDER BY created_at DESC
-                "#,
-            )
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            query
         };
 
-        Ok(rows)
+        let rows = query
+            .order_by_desc(companies_entity::Column::CreatedAt)
+            .all(&self.db)
+            .await?;
+
+        Ok(rows.into_iter().map(Self::model_to_company).collect())
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Company, AppError> {
-        let company = sqlx::query_as::<_, Company>(
-            r#"
-            SELECT id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
-                   schema_name, parent_company_id, parent_revenda_id, db_connection_string,
-                   email, phone, document, document_type,
-                   zip_code, street, number, complement, neighborhood, city, state
-            FROM companies
-            WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Company not found"))?;
+        let model = companies_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Company not found"))?;
 
-        Ok(company)
+        Ok(Self::model_to_company(model))
     }
 
     pub async fn update(&self, id: &str, request: UpdateCompanyRequest) -> Result<Company, AppError> {
-        let existing = self.find_by_id(id).await?;
+        let model = companies_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Company not found"))?;
 
-        let name = request.name.unwrap_or_else(|| existing.name.clone());
-        let subdomain = request.subdomain.or(existing.subdomain.clone());
-        let active = request.active.unwrap_or(existing.active);
-        let parent_company_id = request.parent_company_id.clone().or(existing.parent_company_id.clone());
-        let parent_revenda_id = request.parent_revenda_id.clone().or(existing.parent_revenda_id.clone());
-        let db_connection_string = request.db_connection_string.or(existing.db_connection_string);
-        let email = request.email.or(existing.email);
-        let phone = request.phone.or(existing.phone);
-        let document = request.document.or(existing.document);
-        let document_type = request.document_type.or(existing.document_type);
-        let zip_code = request.zip_code.or(existing.zip_code);
-        let street = request.street.or(existing.street);
-        let number = request.number.or(existing.number);
-        let complement = request.complement.or(existing.complement);
-        let neighborhood = request.neighborhood.or(existing.neighborhood);
-        let city = request.city.or(existing.city);
-        let state = request.state.or(existing.state);
+        let mut active: companies_entity::ActiveModel = model.into();
 
-        let company = sqlx::query_as::<_, Company>(
-            r#"
-            UPDATE companies
-            SET name = $2, subdomain = $3, active = $4, parent_company_id = $5,
-                parent_revenda_id = $6, db_connection_string = $7, email = $8, phone = $9,
-                document = $10, document_type = $11, zip_code = $12, street = $13,
-                number = $14, complement = $15, neighborhood = $16, city = $17, state = $18,
-                updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
-                      schema_name, parent_company_id, parent_revenda_id, db_connection_string,
-                      email, phone, document, document_type,
-                      zip_code, street, number, complement, neighborhood, city, state
-            "#,
-        )
-        .bind(id)
-        .bind(&name)
-        .bind(&subdomain)
-        .bind(active)
-        .bind(parent_company_id)
-        .bind(parent_revenda_id)
-        .bind(&db_connection_string)
-        .bind(&email)
-        .bind(&phone)
-        .bind(&document)
-        .bind(&document_type)
-        .bind(&zip_code)
-        .bind(&street)
-        .bind(&number)
-        .bind(&complement)
-        .bind(&neighborhood)
-        .bind(&city)
-        .bind(&state)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Company not found"))?;
+        if let Some(name) = request.name {
+            active.name = Set(name);
+        }
+        if let Some(subdomain) = request.subdomain {
+            active.subdomain = Set(subdomain);
+        }
+        if let Some(active_flag) = request.active {
+            active.active = Set(active_flag);
+        }
+        if let Some(v) = request.parent_company_id {
+            active.parent_company_id = Set(Some(v));
+        }
+        if let Some(v) = request.db_connection_string {
+            active.db_connection_string = Set(Some(v));
+        }
+        if let Some(v) = request.email {
+            active.email = Set(Some(v));
+        }
+        if let Some(v) = request.phone {
+            active.phone = Set(Some(v));
+        }
+        if let Some(v) = request.document {
+            active.document = Set(Some(v));
+        }
+        if let Some(v) = request.document_type {
+            active.document_type = Set(Some(v));
+        }
+        if let Some(v) = request.zip_code {
+            active.zip_code = Set(Some(v));
+        }
+        if let Some(v) = request.street {
+            active.street = Set(Some(v));
+        }
+        if let Some(v) = request.number {
+            active.number = Set(Some(v));
+        }
+        if let Some(v) = request.complement {
+            active.complement = Set(Some(v));
+        }
+        if let Some(v) = request.neighborhood {
+            active.neighborhood = Set(Some(v));
+        }
+        if let Some(v) = request.city {
+            active.city = Set(Some(v));
+        }
+        if let Some(v) = request.state {
+            active.state = Set(Some(v));
+        }
+        active.updated_at = Set(Utc::now().naive_utc());
 
-        Ok(company)
+        let result = active.update(&self.db).await?;
+        Ok(Self::model_to_company(result))
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), AppError> {
-        let result = sqlx::query(
-            r#"UPDATE companies SET active = false, updated_at = NOW() WHERE id = $1"#,
-        )
-        .bind(id)
-        .execute(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let model = companies_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Company not found"))?;
 
-        if result.rows_affected() == 0 {
-            return Err(AppError::not_found("Company not found"));
-        }
+        let mut active: companies_entity::ActiveModel = model.into();
+        active.active = Set(false);
+        active.updated_at = Set(Utc::now().naive_utc());
+        active.update(&self.db).await?;
 
         Ok(())
     }
@@ -201,24 +185,16 @@ impl CompanyService {
     }
 
     pub async fn set_demo_mode(&self, id: &str, enabled: bool) -> Result<Company, AppError> {
-        let company = sqlx::query_as::<_, Company>(
-            r#"
-            UPDATE companies
-            SET is_demo_mode = $2, updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
-                      schema_name, parent_company_id, parent_revenda_id, db_connection_string,
-                      email, phone, document, document_type,
-                      zip_code, street, number, complement, neighborhood, city, state
-            "#,
-        )
-        .bind(id)
-        .bind(enabled)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Company not found"))?;
+        let model = companies_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Company not found"))?;
 
-        Ok(company)
+        let mut active: companies_entity::ActiveModel = model.into();
+        active.is_demo_mode = Set(enabled);
+        active.updated_at = Set(Utc::now().naive_utc());
+
+        let result = active.update(&self.db).await?;
+        Ok(Self::model_to_company(result))
     }
 }

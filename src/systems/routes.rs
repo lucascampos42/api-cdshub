@@ -161,7 +161,7 @@ pub async fn find_by_company(
     auth: AuthUser,
     Path(company_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Read, "System").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "System").await?;
 
     let service = SystemService::new(state.pool.clone());
     let systems = service.find_by_company(&company_id).await?;
