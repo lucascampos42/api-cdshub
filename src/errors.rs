@@ -58,3 +58,10 @@ impl From<sqlx::Error> for AppError {
         Self::internal("Erro no banco de dados")
     }
 }
+
+impl From<sea_orm::DbErr> for AppError {
+    fn from(err: sea_orm::DbErr) -> Self {
+        tracing::error!("SeaORM database error: {:?}", err);
+        Self::internal("Erro no banco de dados")
+    }
+}

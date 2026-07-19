@@ -1,24 +1,42 @@
-use chrono::{NaiveDateTime, Utc};
+use chrono::Utc;
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde::{Deserialize, Serialize};
-use sqlx::PgPool;
+use uuid::Uuid;
 
-#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Session {
+use crate::entities::sessions;
+
+pub struct SessionService {
+    db: DatabaseConnection,
+}
+
+pub type Session = SessionResponse;
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SessionResponse {
     pub id: String,
     pub user_id: String,
     pub ip: Option<String>,
     pub user_agent: Option<String>,
-    pub created_at: NaiveDateTime,
-    pub expires_at: NaiveDateTime,
+    pub created_at: chrono::NaiveDateTime,
+    pub expires_at: chrono::NaiveDateTime,
 }
 
-pub struct SessionService {
-    pool: PgPool,
+impl From<sessions::Model> for SessionResponse {
+    fn from(m: sessions::Model) -> Self {
+        Self {
+            id: m.id,
+            user_id: m.user_id,
+            ip: m.ip,
+            user_agent: m.user_agent,
+            created_at: m.created_at.naive_utc(),
+            expires_at: m.expires_at.naive_utc(),
+        }
+    }
 }
 
 impl SessionService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
     }
 
     pub async fn create_session(
@@ -27,83 +45,66 @@ impl SessionService {
         ip: Option<&str>,
         user_agent: Option<&str>,
         expires_in_days: i64,
-    ) -> Result<Session, sqlx::Error> {
+    ) -> Result<SessionResponse, sea_orm::DbErr> {
         let expires_at = (Utc::now() + chrono::Duration::days(expires_in_days)).naive_utc();
 
-        let row = sqlx::query_as::<_, Session>(
-            r#"
-            INSERT INTO sessions (user_id, ip, user_agent, expires_at)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id, user_id, ip, user_agent, created_at, expires_at
-            "#,
-        )
-        .bind(user_id)
-        .bind(ip)
-        .bind(user_agent)
-        .bind(expires_at)
-        .fetch_one(&self.pool)
-        .await?;
+        let model = sessions::ActiveModel {
+            id: Set(Uuid::new_v4().to_string()),
+            user_id: Set(user_id.to_string()),
+            ip: Set(ip.map(|s| s.to_string())),
+            user_agent: Set(user_agent.map(|s| s.to_string())),
+            created_at: Set(Utc::now().naive_utc().into()),
+            expires_at: Set(expires_at.into()),
+        };
 
-        Ok(row)
+        let result = model.insert(&self.db).await?;
+        Ok(result.into())
     }
 
     pub async fn is_session_valid(
         &self,
         user_id: &str,
         session_id: &str,
-    ) -> Result<bool, sqlx::Error> {
-        let row = sqlx::query_scalar::<_, bool>(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM sessions
-                WHERE user_id = $1 AND id = $2 AND expires_at > NOW()
-            )
-            "#,
-        )
-        .bind(user_id)
-        .bind(session_id)
-        .fetch_one(&self.pool)
-        .await?;
+    ) -> Result<bool, sea_orm::DbErr> {
+        let count = sessions::Entity::find()
+            .filter(sessions::Column::UserId.eq(user_id))
+            .filter(sessions::Column::Id.eq(session_id))
+            .filter(sessions::Column::ExpiresAt.gte(Utc::now().naive_utc()))
+            .count(&self.db)
+            .await?;
 
-        Ok(row)
+        Ok(count > 0)
     }
 
-    pub async fn list_sessions(&self, user_id: &str) -> Result<Vec<Session>, sqlx::Error> {
-        let rows = sqlx::query_as::<_, Session>(
-            r#"
-            SELECT id, user_id, ip, user_agent, created_at, expires_at
-            FROM sessions
-            WHERE user_id = $1 AND expires_at > NOW()
-            ORDER BY created_at DESC
-            "#,
-        )
-        .bind(user_id)
-        .fetch_all(&self.pool)
-        .await?;
+    pub async fn list_sessions(&self, user_id: &str) -> Result<Vec<SessionResponse>, sea_orm::DbErr> {
+        let rows = sessions::Entity::find()
+            .filter(sessions::Column::UserId.eq(user_id))
+            .filter(sessions::Column::ExpiresAt.gte(Utc::now().naive_utc()))
+            .order_by_desc(sessions::Column::CreatedAt)
+            .all(&self.db)
+            .await?;
 
-        Ok(rows)
+        Ok(rows.into_iter().map(SessionResponse::from).collect())
     }
 
     pub async fn revoke_session(
         &self,
         user_id: &str,
         session_id: &str,
-    ) -> Result<(), sqlx::Error> {
-        sqlx::query(
-            r#"DELETE FROM sessions WHERE user_id = $1 AND id = $2"#,
-        )
-        .bind(user_id)
-        .bind(session_id)
-        .execute(&self.pool)
-        .await?;
+    ) -> Result<(), sea_orm::DbErr> {
+        sessions::Entity::delete_many()
+            .filter(sessions::Column::UserId.eq(user_id))
+            .filter(sessions::Column::Id.eq(session_id))
+            .exec(&self.db)
+            .await?;
 
         Ok(())
     }
 
-    pub async fn revoke_all_sessions(&self, user_id: &str) -> Result<(), sqlx::Error> {
-        sqlx::query(r#"DELETE FROM sessions WHERE user_id = $1"#)
-            .bind(user_id)
-            .execute(&self.pool)
+    pub async fn revoke_all_sessions(&self, user_id: &str) -> Result<(), sea_orm::DbErr> {
+        sessions::Entity::delete_many()
+            .filter(sessions::Column::UserId.eq(user_id))
+            .exec(&self.db)
             .await?;
 
         Ok(())

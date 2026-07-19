@@ -7,7 +7,7 @@ use sqlx::PgPool;
 
 use crate::auth::jwt::{create_temp_2fa_token, create_token_pair, decode_token};
 use crate::auth::middleware::AuthUser;
-use crate::auth::sessions::{Session, SessionService};
+use crate::auth::sessions::{SessionService, SessionResponse};
 use crate::common::password::verify_password;
 use crate::common::types::UserType;
 use crate::errors::AppError;
@@ -168,7 +168,7 @@ pub async fn refresh_token(
     }
 
     let user_service = UserService::new(state.pool.clone());
-    let session_service = SessionService::new(state.pool.clone());
+    let session_service = SessionService::new(state.db.clone());
 
     let user = user_service.find_by_id(&claims.sub).await?;
 
@@ -204,7 +204,7 @@ pub async fn logout(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<StatusCode, AppError> {
-    let session_service = SessionService::new(state.pool.clone());
+    let session_service = SessionService::new(state.db.clone());
     let user_service = UserService::new(state.pool.clone());
 
     session_service
@@ -296,7 +296,7 @@ pub async fn switch_company(
     .ok_or_else(|| AppError::not_found("Company not found"))?;
 
     // Generate new tokens with updated company context
-    let session_service = SessionService::new(state.pool.clone());
+    let session_service = SessionService::new(state.db.clone());
     let session = session_service
         .create_session(
             &auth.user_id,
@@ -476,7 +476,7 @@ pub async fn list_sessions(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let session_service = SessionService::new(state.pool.clone());
+    let session_service = SessionService::new(state.db.clone());
     let sessions = session_service.list_sessions(&auth.user_id).await
         .map_err(|e| AppError::internal(format!("Session list error: {}", e)))?;
 
@@ -502,7 +502,7 @@ pub async fn revoke_session(
     auth: AuthUser,
     Path(session_id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    let session_service = SessionService::new(state.pool.clone());
+    let session_service = SessionService::new(state.db.clone());
     session_service
         .revoke_session(&auth.user_id, &session_id)
         .await
@@ -524,7 +524,7 @@ pub async fn revoke_all_sessions(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<StatusCode, AppError> {
-    let session_service = SessionService::new(state.pool.clone());
+    let session_service = SessionService::new(state.db.clone());
     session_service
         .revoke_all_sessions(&auth.user_id)
         .await
@@ -654,19 +654,22 @@ async fn generate_auth_response_with_session(
     user: &crate::users::model::User,
     existing_session_id: Option<&str>,
 ) -> Result<Value, AppError> {
-    let session_service = SessionService::new(state.pool.clone());
+    let session_service = SessionService::new(state.db.clone());
 
-    let session: Session = if let Some(session_id) = existing_session_id {
-        // Reuse existing session info
-        sqlx::query_as::<_, crate::auth::sessions::Session>(
-            r#"SELECT id, user_id, ip, user_agent, created_at, expires_at FROM sessions WHERE id = $1 AND user_id = $2"#,
-        )
-        .bind(session_id)
-        .bind(user.id.to_string())
-        .fetch_optional(&state.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Session not found"))?
+    let session: SessionResponse = if let Some(session_id) = existing_session_id {
+        // Reuse existing session info via SeaORM
+        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
+        use crate::entities::sessions as sessions_entity;
+
+        let model = sessions_entity::Entity::find()
+            .filter(sessions_entity::Column::Id.eq(session_id))
+            .filter(sessions_entity::Column::UserId.eq(user.id.to_string()))
+            .one(&state.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("Session not found"))?;
+
+        SessionResponse::from(model)
     } else {
         session_service
             .create_session(

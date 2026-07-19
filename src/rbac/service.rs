@@ -1,10 +1,11 @@
-use sqlx::PgPool;
+use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
+use crate::entities::access_rules;
 use crate::errors::AppError;
-use super::model::{AccessRule, Action};
+use super::model::Action;
 
 pub async fn check_permission(
-    pool: &PgPool,
+    db: &DatabaseConnection,
     user_type: &str,
     action: Action,
     resource: &str,
@@ -13,19 +14,11 @@ pub async fn check_permission(
         return Ok(());
     }
 
-    let rule = sqlx::query_as::<_, AccessRule>(
-        r#"
-        SELECT id, role, resource, can_read, can_write, can_update, can_delete,
-               created_at, updated_at
-        FROM access_rules
-        WHERE role = $1 AND resource = $2
-        "#,
-    )
-    .bind(user_type)
-    .bind(resource)
-    .fetch_optional(pool)
-    .await
-    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+    let rule = access_rules::Entity::find()
+        .filter(access_rules::Column::Role.eq(user_type))
+        .filter(access_rules::Column::Resource.eq(resource))
+        .one(db)
+        .await?;
 
     let allowed = match rule {
         Some(rule) => match action {
