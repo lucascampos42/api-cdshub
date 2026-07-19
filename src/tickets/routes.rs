@@ -111,7 +111,7 @@ pub async fn create_ticket(
         .ok_or_else(|| AppError::bad_request("No revenda associated with user"))?;
 
     let service = TicketService::new(state.pool.clone());
-    let ticket = service.create(&request, revenda_id, &auth.user_id).await?;
+    let ticket = service.create(request, revenda_id, &auth.user_id).await?;
 
     Ok((
         StatusCode::CREATED,

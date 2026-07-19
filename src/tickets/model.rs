@@ -21,6 +21,7 @@ pub struct Ticket {
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+#[allow(dead_code)]
 pub struct TicketAssignment {
     pub id: Uuid,
     pub ticket_id: Uuid,
@@ -66,7 +67,9 @@ pub struct CreateTicketRequest {
     pub status: Option<String>,
     pub priority: Option<String>,
     pub category: Option<String>,
+    #[allow(dead_code)]
     pub is_visit: Option<bool>,
+    #[allow(dead_code)]
     pub assigned_user_ids: Option<Vec<String>>,
     pub primary_assignee_id: Option<String>,
     pub scheduled_for: Option<String>,

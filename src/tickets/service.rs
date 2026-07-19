@@ -290,18 +290,29 @@ impl TicketService {
     }
 
     pub async fn get_stats(&self, revenda_id: Option<&str>) -> Result<TicketStats, AppError> {
-        let rows = if let Some(rid) = revenda_id {
+        #[derive(sqlx::FromRow)]
+        struct StatsRow {
+            total: i64,
+            aguardando: i64,
+            agendado: i64,
+            em_execucao: i64,
+            implantacao: i64,
+            concluido: i64,
+            abertos: i64,
+        }
+
+        let row = if let Some(rid) = revenda_id {
             let revenda_uuid: Uuid = rid.parse().map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-            sqlx::query_scalar::<_, i64>(
+            sqlx::query_as::<_, StatsRow>(
                 r#"
                 SELECT
-                    COUNT(*)::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'AGUARDANDO_ATENDIMENTO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'AGENDADO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'EM_EXECUCAO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'IMPLANTACAO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT
+                    COUNT(*)::BIGINT as total,
+                    COUNT(*) FILTER (WHERE status = 'AGUARDANDO_ATENDIMENTO')::BIGINT as aguardando,
+                    COUNT(*) FILTER (WHERE status = 'AGENDADO')::BIGINT as agendado,
+                    COUNT(*) FILTER (WHERE status = 'EM_EXECUCAO')::BIGINT as em_execucao,
+                    COUNT(*) FILTER (WHERE status = 'IMPLANTACAO')::BIGINT as implantacao,
+                    COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::BIGINT as concluido,
+                    COUNT(*) FILTER (WHERE status NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT as abertos
                 FROM tickets
                 WHERE revenda_id = $1
                 "#,
@@ -311,16 +322,16 @@ impl TicketService {
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         } else {
-            sqlx::query_scalar::<_, i64>(
+            sqlx::query_as::<_, StatsRow>(
                 r#"
                 SELECT
-                    COUNT(*)::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'AGUARDANDO_ATENDIMENTO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'AGENDADO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'EM_EXECUCAO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'IMPLANTACAO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::BIGINT,
-                    COUNT(*) FILTER (WHERE status NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT
+                    COUNT(*)::BIGINT as total,
+                    COUNT(*) FILTER (WHERE status = 'AGUARDANDO_ATENDIMENTO')::BIGINT as aguardando,
+                    COUNT(*) FILTER (WHERE status = 'AGENDADO')::BIGINT as agendado,
+                    COUNT(*) FILTER (WHERE status = 'EM_EXECUCAO')::BIGINT as em_execucao,
+                    COUNT(*) FILTER (WHERE status = 'IMPLANTACAO')::BIGINT as implantacao,
+                    COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::BIGINT as concluido,
+                    COUNT(*) FILTER (WHERE status NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT as abertos
                 FROM tickets
                 "#,
             )
@@ -330,13 +341,13 @@ impl TicketService {
         };
 
         Ok(TicketStats {
-            total: rows[0],
-            aguardando: rows[1],
-            agendado: rows[2],
-            em_execucao: rows[3],
-            implantacao: rows[4],
-            concluido: rows[5],
-            abertos: rows[6],
+            total: row.total,
+            aguardando: row.aguardando,
+            agendado: row.agendado,
+            em_execucao: row.em_execucao,
+            implantacao: row.implantacao,
+            concluido: row.concluido,
+            abertos: row.abertos,
         })
     }
 
