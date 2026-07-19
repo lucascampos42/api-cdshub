@@ -30,6 +30,7 @@ pub struct RevendaSystem {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateRevendaRequest {
     pub name: String,
     pub domain: String,
@@ -47,6 +48,7 @@ pub struct CreateRevendaRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateRevendaRequest {
     pub name: Option<String>,
     pub domain: Option<String>,

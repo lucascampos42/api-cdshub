@@ -98,6 +98,7 @@ impl From<Suggestion> for SuggestionResponse {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateSuggestionRequest {
     pub title: String,
     pub description: String,
@@ -105,6 +106,7 @@ pub struct CreateSuggestionRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateSuggestionStatusRequest {
     pub status: SuggestionStatus,
 }

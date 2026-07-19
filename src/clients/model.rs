@@ -27,6 +27,7 @@ pub struct Client {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateClientRequest {
     pub name: String,
     pub revenda_id: Option<String>,
@@ -49,6 +50,7 @@ pub struct CreateClientRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateClientRequest {
     pub name: Option<String>,
     pub document: Option<String>,

@@ -30,6 +30,7 @@ pub struct User {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateUserRequest {
     pub name: String,
     pub email: String,
@@ -40,6 +41,7 @@ pub struct CreateUserRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateUserRequest {
     pub name: Option<String>,
     pub email: Option<String>,

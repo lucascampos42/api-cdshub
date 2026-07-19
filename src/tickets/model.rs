@@ -59,6 +59,7 @@ pub struct TicketWithDetails {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateTicketRequest {
     pub title: String,
     pub description: String,
@@ -75,6 +76,7 @@ pub struct CreateTicketRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UpdateTicketRequest {
     pub title: Option<String>,
     pub description: Option<String>,
@@ -85,6 +87,7 @@ pub struct UpdateTicketRequest {
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct CreateActionRequest {
     pub content: String,
 }
