@@ -241,4 +241,18 @@ impl ClientService {
 
         Ok(())
     }
+
+    pub async fn update_revenda(&self, id: &str, revenda_id: Option<String>) -> Result<Client, AppError> {
+        let model = clients_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await?
+            .ok_or_else(|| AppError::not_found("Client not found"))?;
+
+        let mut active: clients_entity::ActiveModel = model.into();
+        active.revenda_id = Set(revenda_id);
+        active.updated_at = Set(Utc::now().naive_utc());
+
+        let result = active.update(&self.db).await?;
+        Ok(Self::model_to_client(result))
+    }
 }

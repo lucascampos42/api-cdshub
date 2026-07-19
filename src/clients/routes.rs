@@ -11,6 +11,27 @@ use crate::rbac::model::Action;
 use crate::rbac::service::check_permission;
 use crate::AppState;
 
+/// Retorna true se o user_type pertence à CodesDevs (superadmin/suporte)
+fn is_codesdevs(user_type: &str) -> bool {
+    user_type == "CODESDEVS_SUPERADMIN" || user_type == "CODESDEVS_SUPORTE"
+}
+
+/// Retorna true se o user_type pertence a uma revenda
+fn is_revenda(user_type: &str) -> bool {
+    user_type.starts_with("REVENDA_")
+}
+
+/// Verifica se o revenda_id do cliente bate com o da revenda logada.
+/// CodesDevs passa sem restrição.
+fn assert_revenda_access(auth: &AuthUser, client_revenda_id: Option<&str>) -> Result<(), AppError> {
+    if is_revenda(&auth.user_type) {
+        if auth.revenda_id.as_deref() != client_revenda_id {
+            return Err(AppError::forbidden("Acesso negado: cliente não pertence à sua revenda"));
+        }
+    }
+    Ok(())
+}
+
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct UpdateRevendaPayload {
     pub revenda_id: Option<String>,
@@ -33,14 +54,12 @@ pub async fn create_client(
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
     check_permission(&state.db, &auth.user_type, Action::Create, "Client").await?;
 
-    if auth.user_type == "REVENDA_ADMIN" && request.revenda_id.is_none() {
-        if let Some(revenda_id) = &auth.revenda_id {
-            request.revenda_id = Some(revenda_id.clone());
-        }
+    // Revenda users sempre criam clientes vinculados à sua própria revenda
+    if is_revenda(&auth.user_type) {
+        request.revenda_id = auth.revenda_id.clone();
     }
 
     let service = ClientService::new(state.db.clone());
-    
     let client = service.create(request).await?;
     Ok((StatusCode::CREATED, Json(serde_json::to_value(client).unwrap())))
 }
@@ -65,14 +84,14 @@ pub async fn list_clients(
 
     let service = ClientService::new(state.db.clone());
 
-    let revenda_id = if auth.user_type == "REVENDA_ADMIN" {
+    // Revenda users só veem clientes da sua própria revenda
+    let revenda_id = if is_revenda(&auth.user_type) {
         auth.revenda_id.as_deref()
     } else {
         params.get("revendaId").map(|s| s.as_str())
     };
 
     let clients = service.find_all(revenda_id).await?;
-
     Ok(Json(serde_json::to_value(clients).unwrap()))
 }
 
@@ -97,6 +116,9 @@ pub async fn get_client(
 
     let service = ClientService::new(state.db.clone());
     let client = service.find_by_id(&id).await?;
+
+    // Revenda só acessa cliente da sua própria revenda
+    assert_revenda_access(&auth, client.revenda_id.as_deref())?;
 
     Ok(Json(serde_json::to_value(client).unwrap()))
 }
@@ -123,8 +145,12 @@ pub async fn update_client(
     check_permission(&state.db, &auth.user_type, Action::Update, "Client").await?;
 
     let service = ClientService::new(state.db.clone());
-    let client = service.update(&id, request).await?;
 
+    // Verificar acesso antes de atualizar
+    let existing = service.find_by_id(&id).await?;
+    assert_revenda_access(&auth, existing.revenda_id.as_deref())?;
+
+    let client = service.update(&id, request).await?;
     Ok(Json(serde_json::to_value(client).unwrap()))
 }
 
@@ -148,8 +174,12 @@ pub async fn delete_client(
     check_permission(&state.db, &auth.user_type, Action::Delete, "Client").await?;
 
     let service = ClientService::new(state.db.clone());
-    service.delete(&id).await?;
 
+    // Verificar acesso antes de deletar
+    let existing = service.find_by_id(&id).await?;
+    assert_revenda_access(&auth, existing.revenda_id.as_deref())?;
+
+    service.delete(&id).await?;
     Ok(StatusCode::OK)
 }
 
@@ -163,6 +193,7 @@ pub async fn delete_client(
     request_body = UpdateRevendaPayload,
     responses(
         (status = 200, description = "Revenda updated"),
+        (status = 403, description = "Access denied"),
         (status = 404, description = "Client not found"),
     )
 )]
@@ -174,25 +205,14 @@ pub async fn update_client_revenda(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Update, "Client").await?;
 
-    let revenda_id = payload.revenda_id;
+    // Apenas CodesDevs pode mover cliente para outra revenda
+    if !is_codesdevs(&auth.user_type) {
+        return Err(AppError::forbidden(
+            "Apenas usuários CodesDevs podem alterar a revenda de um cliente",
+        ));
+    }
 
-    let client = sqlx::query_as::<_, crate::clients::model::Client>(
-        r#"
-        UPDATE clients
-        SET revenda_id = $2, updated_at = NOW()
-        WHERE id = $1
-        RETURNING id, revenda_id, name, document, document_type, email, phone,
-                  legal_rep_name, legal_rep_document, legal_rep_email, legal_rep_phone,
-                  zip_code, street, number, complement, neighborhood, city, state,
-                  created_at, updated_at
-        "#,
-    )
-    .bind(&id)
-    .bind(revenda_id)
-    .fetch_optional(&state.pool)
-    .await
-    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-    .ok_or_else(|| AppError::not_found("Client not found"))?;
-
+    let service = ClientService::new(state.db.clone());
+    let client = service.update_revenda(&id, payload.revenda_id).await?;
     Ok(Json(serde_json::to_value(client).unwrap()))
 }
