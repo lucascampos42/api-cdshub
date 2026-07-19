@@ -1,5 +1,5 @@
 use axum::middleware as axum_middleware;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{any, delete, get, patch, post};
 use axum::Router;
 use sqlx::PgPool;
 use tower_http::cors::{Any, CorsLayer};
@@ -13,6 +13,7 @@ mod config;
 mod db;
 mod errors;
 mod openapi;
+mod proxy;
 mod rbac;
 mod revendas;
 mod suggestions;
@@ -24,6 +25,7 @@ mod users;
 pub struct AppState {
     pub pool: PgPool,
     pub config: config::Config,
+    pub http_client: reqwest::Client,
 }
 
 #[tokio::main]
@@ -41,6 +43,7 @@ async fn main() {
     let state = AppState {
         pool: pool.clone(),
         config: config.clone(),
+        http_client: reqwest::Client::new(),
     };
 
     let cors = CorsLayer::new()
@@ -53,7 +56,8 @@ async fn main() {
         .route("/api/auth/login", post(auth::routes::login))
         .route("/api/auth/login/verify-2fa", post(auth::routes::verify_2fa))
         .route("/api/suggestions", get(suggestions::routes::list_suggestions))
-        .route("/api/suggestions/:id/vote", patch(suggestions::routes::vote_suggestion));
+        .route("/api/suggestions/:id/vote", patch(suggestions::routes::vote_suggestion))
+        .route("/api/public/*path", any(proxy::proxy_public_to_cdsgestor));
 
     // Rotas protegidas (requerem JWT)
     let protected_routes = Router::new()
@@ -107,6 +111,8 @@ async fn main() {
         .route("/api/tickets/:id", delete(tickets::routes::delete_ticket))
         .route("/api/tickets/:ticketId/actions", get(tickets::routes::get_actions))
         .route("/api/tickets/:ticketId/actions", post(tickets::routes::add_action))
+        .route("/api/client/*path", any(proxy::proxy_to_cdsgestor))
+        .route("/api/cms/*path", any(proxy::proxy_to_cdsgestor))
         .layer(axum_middleware::from_fn(auth::middleware::auth_middleware));
 
     let app = Router::new()
