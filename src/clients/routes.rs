@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 
-use super::model::{CreateClientRequest, UpdateClientRequest};
+use super::model::{UpdateClientRequest};
 use super::service::ClientService;
 use crate::auth::middleware::AuthUser;
 use crate::errors::AppError;
@@ -39,13 +39,10 @@ pub async fn create_client(
         }
     }
 
-    let service = ClientService::new(state.pool.clone().into());
-
-    Ok((
-        StatusCode::CREATED,
-        let client = service.create(request).await?;
-                Json(serde_json::to_value(client).unwrap()),
-    ))
+    let service = ClientService::new(state.db.clone());
+    
+    let client = service.create(request).await?;
+    Ok((StatusCode::CREATED, Json(serde_json::to_value(client).unwrap())))
 }
 
 #[utoipa::path(
@@ -66,7 +63,7 @@ pub async fn list_clients(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Client").await?;
 
-    let service = ClientService::new(state.pool.clone());
+    let service = ClientService::new(state.db.clone());
 
     let revenda_id = if auth.user_type == "REVENDA_ADMIN" {
         auth.revenda_id.as_deref()
@@ -98,7 +95,7 @@ pub async fn get_client(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Client").await?;
 
-    let service = ClientService::new(state.pool.clone());
+    let service = ClientService::new(state.db.clone());
     let client = service.find_by_id(&id).await?;
 
     Ok(Json(serde_json::to_value(client).unwrap()))
@@ -150,7 +147,7 @@ pub async fn delete_client(
 ) -> Result<StatusCode, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Delete, "Client").await?;
 
-    let service = ClientService::new(state.pool.clone());
+    let service = ClientService::new(state.db.clone());
     service.delete(&id).await?;
 
     Ok(StatusCode::OK)

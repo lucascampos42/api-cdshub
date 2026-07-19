@@ -30,7 +30,7 @@ pub async fn list_tickets(
     auth: AuthUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let tickets = service.find_all(
@@ -57,7 +57,7 @@ pub async fn get_stats(
     auth: AuthUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let stats = service.get_stats(params.get("revendaId").map(|s| s.as_str())).await?;
@@ -82,7 +82,7 @@ pub async fn get_ticket(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let ticket = service.find_by_id(&id).await?;
@@ -105,7 +105,7 @@ pub async fn create_ticket(
     auth: AuthUser,
     Json(request): Json<CreateTicketRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Create, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Create, "Ticket").await?;
 
     let revenda_id = auth.revenda_id.as_deref()
         .ok_or_else(|| AppError::bad_request("No revenda associated with user"))?;
@@ -138,7 +138,7 @@ pub async fn update_ticket(
     Path(id): Path<String>,
     Json(request): Json<UpdateTicketRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Ticket").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let ticket = service.update(&id, request).await?;
@@ -163,7 +163,7 @@ pub async fn delete_ticket(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Delete, "Ticket").await?;
+    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Delete, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     service.delete(&id).await?;
@@ -190,7 +190,7 @@ pub async fn add_action(
     Path(ticket_id): Path<String>,
     Json(request): Json<CreateActionRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Ticket").await?;
+    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Update, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let action = service.add_action(&ticket_id, &auth.user_id, &request.content).await?;
@@ -217,7 +217,7 @@ pub async fn get_actions(
     auth: AuthUser,
     Path(ticket_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Ticket").await?;
+    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Read, "Ticket").await?;
 
     let service = TicketService::new(state.pool.clone());
     let actions = service.get_actions(&ticket_id).await?;

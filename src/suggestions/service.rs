@@ -1,4 +1,5 @@
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set};
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::entities::suggestions as suggestions_entity;

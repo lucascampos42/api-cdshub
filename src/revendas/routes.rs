@@ -25,7 +25,7 @@ pub async fn create_revenda(
     auth: AuthUser,
     Json(request): Json<CreateRevendaRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Create, "Revenda").await?;
+    check_permission(&state.db, &auth.user_type, Action::Create, "Revenda").await?;
 
     let service = RevendaService::new(state.pool.clone());
     let (revenda, systems) = service.create(request).await?;
@@ -51,7 +51,7 @@ pub async fn list_revendas(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Revenda").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Revenda").await?;
 
     let service = RevendaService::new(state.pool.clone());
     let revendas = service.find_all().await?;

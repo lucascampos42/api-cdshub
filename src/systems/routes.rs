@@ -50,7 +50,7 @@ pub async fn assign_to_revenda(
     auth: AuthUser,
     Path((revenda_id, slug)): Path<(String, String)>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Create, "System").await?;
+    check_permission(&state.db, &auth.user_type, Action::Create, "System").await?;
 
     let service = SystemService::new(state.pool.clone());
     service.assign_to_revenda(&revenda_id, &slug).await?;
@@ -77,7 +77,7 @@ pub async fn unassign_from_revenda(
     auth: AuthUser,
     Path((revenda_id, slug)): Path<(String, String)>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Delete, "System").await?;
+    check_permission(&state.db, &auth.user_type, Action::Delete, "System").await?;
 
     let service = SystemService::new(state.pool.clone());
     service.unassign_from_revenda(&revenda_id, &slug).await?;
@@ -133,7 +133,7 @@ pub async fn toggle_for_company(
     Path((company_id, slug)): Path<(String, String)>,
     Json(body): Json<serde_json::Value>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "System").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "System").await?;
 
     let active = body.get("active")
         .and_then(|v| v.as_bool())
@@ -161,7 +161,7 @@ pub async fn find_by_company(
     auth: AuthUser,
     Path(company_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "System").await?;
+    check_permission(check_permission(&state.poolstate.db, &auth.user_type, Action::Read, "System").await?;
 
     let service = SystemService::new(state.pool.clone());
     let systems = service.find_by_company(&company_id).await?;
