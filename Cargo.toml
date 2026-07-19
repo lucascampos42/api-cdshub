@@ -12,8 +12,8 @@ tower = { version = "0.5", features = ["util"] }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 
 # ORM
-sea-orm = { version = "1.1", features = ["runtime-tokio-native-tls", "macros", "with-chrono", "with-uuid", "serde_json", "postgres-array", "with-json"] }
-sea-orm-migration = { version = "1.1", features = ["runtime-tokio-native-tls"] }
+sea-orm = { version = "1.1", features = ["runtime-tokio-native-tls", "macros", "with-chrono", "with-uuid", "serde_json", "postgres-array", "with-json", "sqlx-postgres"] }
+sea-orm-migration = { version = "1.1", features = ["runtime-tokio-native-tls", "sqlx-postgres"] }
 
 # Auth
 jsonwebtoken = "9"

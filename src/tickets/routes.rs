@@ -33,15 +33,20 @@ pub async fn list_tickets(
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
     let service = TicketService::new(state.db.clone());
-    let tickets = service.find_all(
+    let page = params.get("page").and_then(|p| p.parse::<u64>().ok()).unwrap_or(1);
+    let limit = params.get("limit").and_then(|p| p.parse::<u64>().ok()).unwrap_or(20);
+
+    let result = service.find_all(
         params.get("revendaId").map(|s| s.as_str()),
         params.get("companyId").map(|s| s.as_str()),
         params.get("status").map(|s| s.as_str()),
         params.get("priority").map(|s| s.as_str()),
         params.get("assignedToUserId").map(|s| s.as_str()),
+        page,
+        limit,
     ).await?;
 
-    Ok(Json(serde_json::to_value(tickets)?))
+    Ok(Json(serde_json::to_value(result)?))
 }
 
 #[utoipa::path(

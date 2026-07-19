@@ -1,7 +1,11 @@
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set,
+};
 use uuid::Uuid;
 
+use crate::common::pagination::{PaginationMeta, PaginatedResponse};
 use crate::entities::{revendas as revendas_entity, revenda_systems as revenda_systems_entity};
 use crate::errors::AppError;
 use super::model::{CreateRevendaRequest, Revenda, RevendaSystem, UpdateRevendaRequest};
@@ -128,19 +132,30 @@ impl RevendaService {
         Ok((Self::model_to_revenda(result), systems))
     }
 
-    pub async fn find_all(&self) -> Result<Vec<(Revenda, Vec<RevendaSystem>)>, AppError> {
+    pub async fn find_all(&self, page: u64, limit: u64) -> Result<PaginatedResponse<(Revenda, Vec<RevendaSystem>)>, AppError> {
+        let total = revendas_entity::Entity::find()
+            .count(&self.db)
+            .await? as i64;
+
+        let skip = ((page as i64 - 1) * limit as i64).max(0) as u64;
+
         let revendas = revendas_entity::Entity::find()
             .order_by_desc(revendas_entity::Column::CreatedAt)
+            .offset(skip)
+            .limit(limit)
             .all(&self.db)
             .await?;
 
-        let mut result = Vec::new();
+        let mut items = Vec::new();
         for revenda in revendas {
             let systems = self.get_systems(&revenda.id).await?;
-            result.push((Self::model_to_revenda(revenda), systems));
+            items.push((Self::model_to_revenda(revenda), systems));
         }
 
-        Ok(result)
+        Ok(PaginatedResponse {
+            items,
+            meta: PaginationMeta::new(total, page as i64, limit as i64),
+        })
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<(Revenda, Vec<RevendaSystem>), AppError> {

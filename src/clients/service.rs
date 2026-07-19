@@ -1,10 +1,12 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set,
 };
 use uuid::Uuid;
 
 use super::model::{Client, CreateClientRequest, UpdateClientRequest};
+use crate::common::pagination::{PaginationMeta, PaginatedResponse};
 use crate::entities::{clients as clients_entity, companies as companies_entity, company_systems};
 use crate::errors::AppError;
 
@@ -141,7 +143,12 @@ impl ClientService {
         Ok(())
     }
 
-    pub async fn find_all(&self, revenda_id: Option<&str>) -> Result<Vec<Client>, AppError> {
+    pub async fn find_all(
+        &self,
+        revenda_id: Option<&str>,
+        page: u64,
+        limit: u64,
+    ) -> Result<PaginatedResponse<Client>, AppError> {
         let query = clients_entity::Entity::find();
 
         let query = if let Some(revenda_id) = revenda_id {
@@ -150,12 +157,20 @@ impl ClientService {
             query
         };
 
+        let total = query.clone().count(&self.db).await? as i64;
+        let skip = ((page as i64 - 1) * limit as i64).max(0) as u64;
+
         let rows = query
             .order_by_desc(clients_entity::Column::CreatedAt)
+            .offset(skip)
+            .limit(limit)
             .all(&self.db)
             .await?;
 
-        Ok(rows.into_iter().map(Self::model_to_client).collect())
+        Ok(PaginatedResponse {
+            items: rows.into_iter().map(Self::model_to_client).collect(),
+            meta: PaginationMeta::new(total, page as i64, limit as i64),
+        })
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Client, AppError> {

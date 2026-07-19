@@ -1,11 +1,12 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseBackend,
-    EntityTrait, QueryFilter, QueryOrder, Set, Statement,
+    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, Statement,
 };
 use uuid::Uuid;
 
 use crate::common::constants::ticket::status as ticket_status;
+use crate::common::pagination::{PaginationMeta, PaginatedResponse};
 use crate::entities::{
     tickets as tickets_entity,
     ticket_actions as ticket_actions_entity,
@@ -126,7 +127,9 @@ impl TicketService {
         status: Option<&str>,
         priority: Option<&str>,
         assigned_to_user_id: Option<&str>,
-    ) -> Result<Vec<TicketWithDetails>, AppError> {
+        page: u64,
+        limit: u64,
+    ) -> Result<PaginatedResponse<TicketWithDetails>, AppError> {
         let mut query = tickets_entity::Entity::find();
 
         if let Some(rid) = revenda_id {
@@ -144,7 +147,11 @@ impl TicketService {
             query = query.filter(tickets_entity::Column::Priority.eq(tp));
         }
 
-        // Filter by assigned user via subquery using raw statement
+        let total = query.clone().count(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))? as i64;
+
+        let skip = ((page as i64 - 1) * limit as i64).max(0) as u64;
+
         let tickets = if let Some(uid) = assigned_to_user_id {
             let sql = Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -154,8 +161,9 @@ impl TicketService {
                 FROM tickets
                 WHERE id IN (SELECT ticket_id FROM ticket_assignments WHERE user_id = $1)
                 ORDER BY created_at DESC
+                LIMIT $2 OFFSET $3
                 "#,
-                [uid.into()],
+                [uid.into(), (limit as i64).into(), (skip as i64).into()],
             );
             tickets_entity::Entity::find()
                 .from_raw_sql(sql)
@@ -165,17 +173,23 @@ impl TicketService {
         } else {
             query
                 .order_by_desc(tickets_entity::Column::CreatedAt)
+                .offset(skip)
+                .limit(limit)
                 .all(&self.db)
                 .await
                 .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         };
 
-        let mut result = Vec::new();
+        let mut items = Vec::new();
         for ticket in tickets {
             let t = Self::model_to_ticket(ticket);
-            result.push(self.enrich_ticket(t).await?);
+            items.push(self.enrich_ticket(t).await?);
         }
-        Ok(result)
+
+        Ok(PaginatedResponse {
+            items,
+            meta: PaginationMeta::new(total, page as i64, limit as i64),
+        })
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<TicketWithDetails, AppError> {

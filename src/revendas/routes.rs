@@ -50,13 +50,17 @@ pub async fn create_revenda(
 pub async fn list_revendas(
     State(state): State<AppState>,
     auth: AuthUser,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Revenda").await?;
 
-    let service = RevendaService::new(state.db.clone());
-    let revendas = service.find_all().await?;
+    let page = params.get("page").and_then(|p| p.parse::<u64>().ok()).unwrap_or(1);
+    let limit = params.get("limit").and_then(|p| p.parse::<u64>().ok()).unwrap_or(20);
 
-    let result: Vec<serde_json::Value> = revendas
+    let service = RevendaService::new(state.db.clone());
+    let result = service.find_all(page, limit).await?;
+
+    let items: Vec<serde_json::Value> = result.items
         .into_iter()
         .map(|(revenda, systems)| {
             serde_json::json!({
@@ -66,7 +70,10 @@ pub async fn list_revendas(
         })
         .collect();
 
-    Ok(Json(serde_json::to_value(result)?))
+    Ok(Json(serde_json::to_value(serde_json::json!({
+        "items": items,
+        "meta": result.meta,
+    }))?))
 }
 
 #[utoipa::path(

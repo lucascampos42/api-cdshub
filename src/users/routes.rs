@@ -93,9 +93,12 @@ pub async fn list_users(
         params.get("revendaId").map(|s| s.as_str())
     };
 
-    let users = service.list_users(revenda_id).await?;
+    let page = params.get("page").and_then(|p| p.parse::<u64>().ok()).unwrap_or(1);
+    let limit = params.get("limit").and_then(|p| p.parse::<u64>().ok()).unwrap_or(20);
 
-    Ok(Json(serde_json::to_value(users)?))
+    let result = service.list_users(revenda_id, page, limit).await?;
+
+    Ok(Json(serde_json::to_value(result)?))
 }
 
 #[utoipa::path(

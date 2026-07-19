@@ -1,11 +1,12 @@
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, Set,
+    QueryOrder, QuerySelect, Set,
 };
 use uuid::Uuid;
 
-use crate::entities::users;
+use crate::common::pagination::{PaginationMeta, PaginatedResponse};
 use crate::common::types::UserType;
+use crate::entities::users;
 use crate::errors::AppError;
 
 use super::model::{CreateUserRequest, CreateUserResponse, UpdateUserRequest, User, UserResponse};
@@ -45,7 +46,12 @@ impl UserService {
         Ok(user.into())
     }
 
-    pub async fn list_users(&self, revenda_id: Option<&str>) -> Result<Vec<UserResponse>, AppError> {
+    pub async fn list_users(
+        &self,
+        revenda_id: Option<&str>,
+        page: u64,
+        limit: u64,
+    ) -> Result<PaginatedResponse<UserResponse>, AppError> {
         let query = users::Entity::find();
 
         let query = if let Some(rid) = revenda_id {
@@ -54,13 +60,23 @@ impl UserService {
             query
         };
 
+        let total = query.clone().count(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))? as i64;
+
+        let skip = ((page as i64 - 1) * limit as i64).max(0) as u64;
+
         let rows = query
             .order_by_desc(users::Column::CreatedAt)
+            .offset(skip)
+            .limit(limit)
             .all(&self.db)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-        Ok(rows.into_iter().map(UserResponse::from).collect())
+        Ok(PaginatedResponse {
+            items: rows.into_iter().map(UserResponse::from).collect(),
+            meta: PaginationMeta::new(total, page as i64, limit as i64),
+        })
     }
 
     pub async fn create_user(

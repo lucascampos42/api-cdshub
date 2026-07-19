@@ -1,9 +1,11 @@
 use chrono::Utc;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set,
 };
 use uuid::Uuid;
 
+use crate::common::pagination::{PaginationMeta, PaginatedResponse};
 use crate::entities::companies as companies_entity;
 use crate::errors::AppError;
 
@@ -116,7 +118,12 @@ impl CompanyService {
         Ok(Self::model_to_company(result))
     }
 
-    pub async fn find_all(&self, revenda_id: Option<&str>) -> Result<Vec<Company>, AppError> {
+    pub async fn find_all(
+        &self,
+        revenda_id: Option<&str>,
+        page: u64,
+        limit: u64,
+    ) -> Result<PaginatedResponse<Company>, AppError> {
         let query = companies_entity::Entity::find();
 
         let query = if let Some(rid) = revenda_id {
@@ -125,12 +132,20 @@ impl CompanyService {
             query
         };
 
+        let total = query.clone().count(&self.db).await? as i64;
+        let skip = ((page as i64 - 1) * limit as i64).max(0) as u64;
+
         let rows = query
             .order_by_desc(companies_entity::Column::CreatedAt)
+            .offset(skip)
+            .limit(limit)
             .all(&self.db)
             .await?;
 
-        Ok(rows.into_iter().map(Self::model_to_company).collect())
+        Ok(PaginatedResponse {
+            items: rows.into_iter().map(Self::model_to_company).collect(),
+            meta: PaginationMeta::new(total, page as i64, limit as i64),
+        })
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Company, AppError> {
