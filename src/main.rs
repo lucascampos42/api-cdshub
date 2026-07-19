@@ -2,7 +2,8 @@ use axum::middleware as axum_middleware;
 use axum::routing::{any, delete, get, patch, post};
 use axum::Router;
 use sqlx::PgPool;
-use tower_http::cors::{Any, CorsLayer};
+use axum::http::header;
+use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
 mod auth;
@@ -47,9 +48,28 @@ async fn main() {
     };
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin([
+            "http://localhost:4240".parse().unwrap(),
+            "http://localhost:4241".parse().unwrap(),
+            "http://localhost:4242".parse().unwrap(),
+            "https://codesdevs.com.br".parse().unwrap(),
+            "https://cdsgestor.codesdevs.com.br".parse().unwrap(),
+        ])
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::PUT,
+            axum::http::Method::PATCH,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::COOKIE,
+            header::ACCEPT,
+        ])
+        .allow_credentials(true);
 
     // Rotas públicas
     let public_routes = Router::new()

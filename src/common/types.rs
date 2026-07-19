@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Type;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, utoipa::ToSchema)]
-#[sqlx(type_name = "user_type", rename_all = "SCREAMING_SNAKE_CASE")]
+#[sqlx(type_name = "UserType", rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UserType {
     CodesdevsSuperadmin,
     CodesdevsSuporte,

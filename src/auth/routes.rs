@@ -49,14 +49,25 @@ pub async fn login(
     Json(request): Json<LoginRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let user_service = UserService::new(state.pool.clone());
-    let user = user_service.find_by_identifier(&request.identifier).await?;
+    let user = match user_service.find_by_identifier(&request.identifier).await {
+        Ok(u) => u,
+        Err(e) => {
+            tracing::error!("Login find user error: {:?}", e);
+            return Err(e);
+        }
+    };
 
     if !user.active {
         return Err(AppError::unauthorized("User is inactive"));
     }
 
-    let valid = verify_password(&request.password, &user.password_hash)
-        .map_err(|e| AppError::internal(format!("Password verification error: {}", e)))?;
+    let valid = match verify_password(&request.password, &user.password_hash) {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::error!("Login verify password error: {:?}", e);
+            return Err(AppError::internal(format!("Password verification error: {}", e)));
+        }
+    };
 
     if !valid {
         return Err(AppError::unauthorized("Invalid credentials"));
