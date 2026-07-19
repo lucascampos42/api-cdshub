@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{CreateRevendaRequest, Revenda, RevendaSystem, UpdateRevendaRequest};
@@ -61,7 +60,7 @@ impl RevendaService {
                     RETURNING id, revenda_id, system_slug, created_at
                     "#,
                 )
-                .bind(revenda.id)
+                .bind(&revenda.id)
                 .bind(slug)
                 .fetch_one(&mut *tx)
                 .await
@@ -125,7 +124,7 @@ impl RevendaService {
                 WHERE revenda_id = $1
                 "#,
             )
-            .bind(revenda.id)
+            .bind(&revenda.id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -137,8 +136,6 @@ impl RevendaService {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<(Revenda, Vec<RevendaSystem>), AppError> {
-        let revenda_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
         let revenda = sqlx::query_as::<_, Revenda>(
             r#"
             SELECT id, name, domain, active, created_at, updated_at,
@@ -148,7 +145,7 @@ impl RevendaService {
             WHERE id = $1
             "#,
         )
-        .bind(revenda_uuid)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -161,7 +158,7 @@ impl RevendaService {
             WHERE revenda_id = $1
             "#,
         )
-        .bind(revenda.id)
+        .bind(&revenda.id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -170,8 +167,6 @@ impl RevendaService {
     }
 
     pub async fn update(&self, id: &str, request: UpdateRevendaRequest) -> Result<(Revenda, Vec<RevendaSystem>), AppError> {
-        let revenda_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
         let existing = {
             let row = sqlx::query_as::<_, Revenda>(
                 r#"
@@ -182,7 +177,7 @@ impl RevendaService {
                 WHERE id = $1
                 "#,
             )
-            .bind(revenda_uuid)
+            .bind(id)
             .fetch_optional(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -190,8 +185,8 @@ impl RevendaService {
             row
         };
 
-        let name = request.name.unwrap_or(existing.name);
-        let domain = request.domain.unwrap_or(existing.domain);
+        let name = request.name.unwrap_or_else(|| existing.name.clone());
+        let domain = request.domain.unwrap_or_else(|| existing.domain.clone());
         let active = request.active.unwrap_or(existing.active);
         let street = request.street.or(existing.street);
         let number = request.number.or(existing.number);
@@ -216,7 +211,7 @@ impl RevendaService {
                       number, state, street, zip_code
             "#,
         )
-        .bind(revenda_uuid)
+        .bind(id)
         .bind(&name)
         .bind(&domain)
         .bind(active)
@@ -234,7 +229,7 @@ impl RevendaService {
 
         if let Some(system_ids) = &request.system_ids {
             sqlx::query("DELETE FROM revenda_systems WHERE revenda_id = $1")
-                .bind(revenda_uuid)
+                .bind(id)
                 .execute(&mut *tx)
                 .await
                 .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -246,7 +241,7 @@ impl RevendaService {
                     VALUES ($1, $2)
                     "#,
                 )
-                .bind(revenda_uuid)
+                .bind(id)
                 .bind(slug)
                 .execute(&mut *tx)
                 .await
@@ -264,7 +259,7 @@ impl RevendaService {
             WHERE revenda_id = $1
             "#,
         )
-        .bind(revenda.id)
+        .bind(&revenda.id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -273,10 +268,8 @@ impl RevendaService {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), AppError> {
-        let revenda_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
         let result = sqlx::query("DELETE FROM revendas WHERE id = $1")
-            .bind(revenda_uuid)
+            .bind(id)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;

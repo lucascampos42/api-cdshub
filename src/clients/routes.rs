@@ -177,11 +177,7 @@ pub async fn update_client_revenda(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.pool, &auth.user_type, Action::Update, "Client").await?;
 
-    let client_uuid: uuid::Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid client ID"))?;
-    let revenda_id = payload.revenda_id.as_deref()
-        .map(|id| id.parse::<uuid::Uuid>())
-        .transpose()
-        .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
+    let revenda_id = payload.revenda_id;
 
     let client = sqlx::query_as::<_, crate::clients::model::Client>(
         r#"
@@ -194,7 +190,7 @@ pub async fn update_client_revenda(
                   created_at, updated_at
         "#,
     )
-    .bind(client_uuid)
+    .bind(&id)
     .bind(revenda_id)
     .fetch_optional(&state.pool)
     .await

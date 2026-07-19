@@ -1,19 +1,18 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct Ticket {
-    pub id: Uuid,
-    pub revenda_id: Uuid,
-    pub company_id: Uuid,
+    pub id: String,
+    pub revenda_id: String,
+    pub company_id: String,
     pub title: String,
     pub description: String,
     pub status: String,
     pub priority: String,
     pub category: Option<String>,
-    pub created_by_id: Uuid,
+    pub created_by_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub closed_at: Option<NaiveDateTime>,
@@ -23,33 +22,33 @@ pub struct Ticket {
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 #[allow(dead_code)]
 pub struct TicketAssignment {
-    pub id: Uuid,
-    pub ticket_id: Uuid,
-    pub user_id: Uuid,
+    pub id: String,
+    pub ticket_id: String,
+    pub user_id: String,
     pub is_primary: bool,
     pub assigned_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct TicketAction {
-    pub id: Uuid,
-    pub ticket_id: Uuid,
-    pub user_id: Uuid,
+    pub id: String,
+    pub ticket_id: String,
+    pub user_id: String,
     pub content: String,
     pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct TicketWithDetails {
-    pub id: Uuid,
-    pub revenda_id: Uuid,
-    pub company_id: Uuid,
+    pub id: String,
+    pub revenda_id: String,
+    pub company_id: String,
     pub title: String,
     pub description: String,
     pub status: String,
     pub priority: String,
     pub category: Option<String>,
-    pub created_by_id: Uuid,
+    pub created_by_id: String,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub closed_at: Option<NaiveDateTime>,

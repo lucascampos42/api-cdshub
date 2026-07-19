@@ -238,8 +238,6 @@ pub async fn switch_company(
 
     let user_type: UserType = auth.user_type.parse()
         .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
-    let user_uuid: uuid::Uuid = auth.user_id.parse()
-        .map_err(|_| AppError::bad_request("Invalid user ID"))?;
 
     // Validate access based on user type
     match user_type {
@@ -248,15 +246,13 @@ pub async fn switch_company(
         }
         UserType::RevendaAdmin | UserType::RevendaSuporte | UserType::RevendaGerente | UserType::RevendaContador => {
             if let Some(revenda_id) = &auth.revenda_id {
-                let company_uuid: uuid::Uuid = request.company_id
-                    .parse()
-                    .map_err(|_| AppError::bad_request("Invalid company ID"))?;
+    let company_uuid: &str = &request.company_id;
 
-                let belongs = sqlx::query_scalar::<_, bool>(
-                    r#"SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1 AND revenda_id = $2 AND active = true)"#,
-                )
-                .bind(company_uuid)
-                .bind(revenda_id)
+    let belongs = sqlx::query_scalar::<_, bool>(
+        r#"SELECT EXISTS(SELECT 1 FROM companies WHERE id = $1 AND revenda_id = $2 AND active = true)"#,
+    )
+    .bind(company_uuid)
+    .bind(revenda_id)
                 .fetch_one(&state.pool)
                 .await
                 .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -269,15 +265,11 @@ pub async fn switch_company(
             }
         }
         _ => {
-            let company_uuid: uuid::Uuid = request.company_id
-                .parse()
-                .map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
             let has_access = sqlx::query_scalar::<_, bool>(
                 r#"SELECT EXISTS(SELECT 1 FROM user_companies WHERE user_id = $1 AND company_id = $2)"#,
             )
-            .bind(user_uuid)
-            .bind(company_uuid)
+            .bind(&auth.user_id)
+            .bind(&request.company_id)
             .fetch_one(&state.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -294,11 +286,10 @@ pub async fn switch_company(
         .await?;
 
     // Get company info for response
-    let company_uuid: uuid::Uuid = request.company_id.parse().unwrap();
-    let company = sqlx::query_as::<_, (uuid::Uuid, Option<String>, String)>(
+    let company = sqlx::query_as::<_, (String, Option<String>, String)>(
         r#"SELECT id, subdomain, name FROM companies WHERE id = $1"#,
     )
-    .bind(company_uuid)
+    .bind(&request.company_id)
     .fetch_optional(&state.pool)
     .await
     .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -317,7 +308,7 @@ pub async fn switch_company(
         .map_err(|e| AppError::internal(format!("Session creation error: {}", e)))?;
 
     // Get user's systems
-    let systems = get_user_systems(&state.pool, &user_uuid, &request.company_id).await?;
+    let systems = get_user_systems(&state.pool, &auth.user_id, &request.company_id).await?;
 
     let tokens = create_token_pair(
         &auth.user_id,
@@ -366,17 +357,15 @@ pub async fn companies_context(
 ) -> Result<Json<Value>, AppError> {
     let user_type: UserType = auth.user_type.parse()
         .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
-    let user_uuid: uuid::Uuid = auth.user_id.parse()
-        .map_err(|_| AppError::bad_request("Invalid user ID"))?;
 
     #[derive(sqlx::FromRow)]
     struct CompanyRow {
-        id: uuid::Uuid,
+        id: String,
         name: String,
         subdomain: Option<String>,
         document: Option<String>,
-        revenda_id: Option<uuid::Uuid>,
-        parent_company_id: Option<uuid::Uuid>,
+        revenda_id: Option<String>,
+        parent_company_id: Option<String>,
         active: bool,
         sgbm_schema: Option<String>,
     }
@@ -423,7 +412,7 @@ pub async fn companies_context(
                 ORDER BY c.name
                 "#,
             )
-            .bind(user_uuid)
+            .bind(&auth.user_id)
             .fetch_all(&state.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -446,11 +435,9 @@ pub async fn companies_context(
         })
         .collect();
 
-    let current_company_id: Option<uuid::Uuid> = auth.company_id
-        .as_deref()
-        .and_then(|id| id.parse().ok());
+    let current_company_id: Option<String> = auth.company_id.clone();
 
-    let current_company = if let Some(company_id) = &current_company_id {
+    let current_company = if let Some(ref company_id) = current_company_id {
         companies.iter().find(|c| c.id == *company_id).map(|c| {
             json!({
                 "id": c.id,
@@ -671,15 +658,11 @@ async fn generate_auth_response_with_session(
 
     let session: Session = if let Some(session_id) = existing_session_id {
         // Reuse existing session info
-        let session_uuid: uuid::Uuid = session_id
-            .parse()
-            .map_err(|_| AppError::bad_request("Invalid session ID"))?;
-
-        sqlx::query_as::<_, Session>(
+        sqlx::query_as::<_, crate::auth::sessions::Session>(
             r#"SELECT id, user_id, ip, user_agent, created_at, expires_at FROM sessions WHERE id = $1 AND user_id = $2"#,
         )
-        .bind(session_uuid)
-        .bind(user.id)
+        .bind(session_id)
+        .bind(user.id.to_string())
         .fetch_optional(&state.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -704,7 +687,7 @@ async fn generate_auth_response_with_session(
         | UserType::ClienteContador => {
             #[derive(sqlx::FromRow)]
             struct CompanyDefault {
-                id: uuid::Uuid,
+                id: String,
                 subdomain: Option<String>,
             }
 
@@ -718,7 +701,7 @@ async fn generate_auth_response_with_session(
                 LIMIT 1
                 "#,
             )
-            .bind(user.id)
+            .bind(&user.id)
             .fetch_optional(&state.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -778,13 +761,9 @@ async fn generate_auth_response_with_session(
 
 async fn get_user_systems(
     pool: &PgPool,
-    _user_id: &uuid::Uuid,
+    _user_id: &str,
     company_id: &str,
 ) -> Result<Vec<String>, AppError> {
-    let company_uuid: uuid::Uuid = company_id
-        .parse()
-        .map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
     let rows = sqlx::query_scalar::<_, String>(
         r#"
         SELECT system_slug
@@ -792,7 +771,7 @@ async fn get_user_systems(
         WHERE company_id = $1 AND active = true
         "#,
     )
-    .bind(company_uuid)
+    .bind(company_id)
     .fetch_all(pool)
     .await
     .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;

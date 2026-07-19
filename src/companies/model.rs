@@ -1,21 +1,20 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct Company {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
-    pub revenda_id: Option<Uuid>,
-    pub client_id: Option<Uuid>,
+    pub revenda_id: Option<String>,
+    pub client_id: Option<String>,
     pub subdomain: Option<String>,
     pub active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub schema_name: Option<String>,
-    pub parent_company_id: Option<Uuid>,
-    pub parent_revenda_id: Option<Uuid>,
+    pub parent_company_id: Option<String>,
+    pub parent_revenda_id: Option<String>,
     pub db_connection_string: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,

@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::*;
@@ -77,8 +76,6 @@ impl TicketService {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<TicketWithDetails, AppError> {
-        let ticket_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid ticket ID"))?;
-
         let ticket = sqlx::query_as::<_, Ticket>(
             r#"
             SELECT id, revenda_id, company_id, title, description,
@@ -88,7 +85,7 @@ impl TicketService {
             WHERE id = $1
             "#,
         )
-        .bind(ticket_uuid)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -101,7 +98,7 @@ impl TicketService {
         let company: Option<serde_json::Value> = sqlx::query_scalar(
             r#"SELECT row_to_json(r) FROM (SELECT id, name, subdomain, email, phone FROM companies WHERE id = $1) r"#,
         )
-        .bind(ticket.company_id)
+        .bind(&ticket.company_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -109,7 +106,7 @@ impl TicketService {
         let created_by: Option<serde_json::Value> = sqlx::query_scalar(
             r#"SELECT row_to_json(r) FROM (SELECT id, name, email FROM users WHERE id = $1) r"#,
         )
-        .bind(ticket.created_by_id)
+        .bind(&ticket.created_by_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -125,7 +122,7 @@ impl TicketService {
             ) r
             "#,
         )
-        .bind(ticket.id)
+        .bind(&ticket.id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -156,10 +153,6 @@ impl TicketService {
         revenda_id: &str,
         created_by_id: &str,
     ) -> Result<TicketWithDetails, AppError> {
-        let revenda_uuid: Uuid = revenda_id.parse().map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-        let company_uuid: Uuid = request.company_id.parse().map_err(|_| AppError::bad_request("Invalid company ID"))?;
-        let created_by_uuid: Uuid = created_by_id.parse().map_err(|_| AppError::bad_request("Invalid user ID"))?;
-
         let status = request.status.unwrap_or_else(|| "AGUARDANDO_ATENDIMENTO".to_string());
         let priority = request.priority.unwrap_or_else(|| "MEDIA".to_string());
 
@@ -177,14 +170,14 @@ impl TicketService {
                       created_by_id, created_at, updated_at, closed_at, scheduled_for
             "#,
         )
-        .bind(revenda_uuid)
-        .bind(company_uuid)
+        .bind(revenda_id)
+        .bind(&request.company_id)
         .bind(&request.title)
         .bind(&request.description)
         .bind(&status)
         .bind(&priority)
         .bind(&request.category)
-        .bind(created_by_uuid)
+        .bind(created_by_id)
         .bind(scheduled_for)
         .fetch_one(&self.pool)
         .await
@@ -195,7 +188,6 @@ impl TicketService {
                 .or(user_ids.first().map(|s| s.as_str()));
 
             for uid in user_ids {
-                let user_uuid: Uuid = uid.parse().map_err(|_| AppError::bad_request("Invalid user ID"))?;
                 let is_primary = Some(uid.as_str()) == primary_id;
                 sqlx::query(
                     r#"
@@ -204,8 +196,8 @@ impl TicketService {
                     ON CONFLICT (ticket_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
                     "#,
                 )
-                .bind(ticket.id)
-                .bind(user_uuid)
+                .bind(&ticket.id)
+                .bind(uid)
                 .bind(is_primary)
                 .fetch_optional(&self.pool)
                 .await
@@ -217,12 +209,10 @@ impl TicketService {
     }
 
     pub async fn update(&self, id: &str, request: UpdateTicketRequest) -> Result<TicketWithDetails, AppError> {
-        let ticket_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid ticket ID"))?;
-
         let existing = sqlx::query_as::<_, Ticket>(
             r#"SELECT id, revenda_id, company_id, title, description, status::TEXT as status, priority::TEXT as priority, category, created_by_id, created_at, updated_at, closed_at, scheduled_for FROM tickets WHERE id = $1"#,
         )
-        .bind(ticket_uuid)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -257,7 +247,7 @@ impl TicketService {
                       created_by_id, created_at, updated_at, closed_at, scheduled_for
             "#,
         )
-        .bind(ticket_uuid)
+        .bind(id)
         .bind(&title)
         .bind(&description)
         .bind(&status)
@@ -274,10 +264,8 @@ impl TicketService {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), AppError> {
-        let ticket_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid ticket ID"))?;
-
         let result = sqlx::query(r#"DELETE FROM tickets WHERE id = $1"#)
-            .bind(ticket_uuid)
+            .bind(id)
             .execute(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -302,7 +290,6 @@ impl TicketService {
         }
 
         let row = if let Some(rid) = revenda_id {
-            let revenda_uuid: Uuid = rid.parse().map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
             sqlx::query_as::<_, StatsRow>(
                 r#"
                 SELECT
@@ -317,7 +304,7 @@ impl TicketService {
                 WHERE revenda_id = $1
                 "#,
             )
-            .bind(revenda_uuid)
+            .bind(rid)
             .fetch_one(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -352,9 +339,6 @@ impl TicketService {
     }
 
     pub async fn add_action(&self, ticket_id: &str, user_id: &str, content: &str) -> Result<TicketAction, AppError> {
-        let ticket_uuid: Uuid = ticket_id.parse().map_err(|_| AppError::bad_request("Invalid ticket ID"))?;
-        let user_uuid: Uuid = user_id.parse().map_err(|_| AppError::bad_request("Invalid user ID"))?;
-
         let action = sqlx::query_as::<_, TicketAction>(
             r#"
             INSERT INTO ticket_actions (ticket_id, user_id, content)
@@ -362,8 +346,8 @@ impl TicketService {
             RETURNING id, ticket_id, user_id, content, created_at
             "#,
         )
-        .bind(ticket_uuid)
-        .bind(user_uuid)
+        .bind(ticket_id)
+        .bind(user_id)
         .bind(content)
         .fetch_one(&self.pool)
         .await
@@ -373,8 +357,6 @@ impl TicketService {
     }
 
     pub async fn get_actions(&self, ticket_id: &str) -> Result<Vec<serde_json::Value>, AppError> {
-        let ticket_uuid: Uuid = ticket_id.parse().map_err(|_| AppError::bad_request("Invalid ticket ID"))?;
-
         let rows: Vec<serde_json::Value> = sqlx::query_scalar(
             r#"
             SELECT row_to_json(r) FROM (
@@ -387,7 +369,7 @@ impl TicketService {
             ) r
             "#,
         )
-        .bind(ticket_uuid)
+        .bind(ticket_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;

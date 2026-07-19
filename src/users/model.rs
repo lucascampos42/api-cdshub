@@ -1,26 +1,25 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 use crate::common::types::UserType;
 
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct User {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
     pub email: String,
     #[serde(skip_serializing)]
     pub password_hash: String,
     pub role: String,
-    pub revenda_id: Option<Uuid>,
+    pub revenda_id: Option<String>,
     pub active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub must_change_password: bool,
     pub cpf: Option<String>,
     pub username: String,
-    pub current_company_id: Option<Uuid>,
+    pub current_company_id: Option<String>,
     pub user_type: UserType,
     #[serde(skip_serializing)]
     #[allow(dead_code)]
@@ -53,18 +52,18 @@ pub struct UpdateUserRequest {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct UserResponse {
-    pub id: Uuid,
+    pub id: String,
     pub name: String,
     pub email: String,
     pub role: String,
-    pub revenda_id: Option<Uuid>,
+    pub revenda_id: Option<String>,
     pub active: bool,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub must_change_password: bool,
     pub cpf: Option<String>,
     pub username: String,
-    pub current_company_id: Option<Uuid>,
+    pub current_company_id: Option<String>,
     pub user_type: UserType,
     pub is_two_factor_enabled: bool,
 }

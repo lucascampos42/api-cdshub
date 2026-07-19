@@ -3,17 +3,16 @@ use std::str::FromStr;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct Suggestion {
-    pub id: Uuid,
+    pub id: String,
     pub title: String,
     pub description: String,
     pub system: String,
     pub status: String,
     pub votes: i32,
-    pub created_by_id: Option<Uuid>,
+    pub created_by_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -71,13 +70,13 @@ impl std::str::FromStr for SuggestionStatus {
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct SuggestionResponse {
-    pub id: Uuid,
+    pub id: String,
     pub title: String,
     pub description: String,
     pub system: String,
     pub status: SuggestionStatus,
     pub votes: i32,
-    pub created_by_id: Option<Uuid>,
+    pub created_by_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

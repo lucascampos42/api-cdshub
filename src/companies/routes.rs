@@ -215,10 +215,7 @@ pub async fn update_company_revenda(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.pool, &auth.user_type, Action::Update, "Company").await?;
 
-    let revenda_id = payload.revenda_id.as_deref()
-        .map(|id| id.parse::<uuid::Uuid>())
-        .transpose()
-        .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
+    let revenda_id = payload.revenda_id;
 
     let company = sqlx::query_as::<_, crate::companies::model::Company>(
         r#"
@@ -231,7 +228,7 @@ pub async fn update_company_revenda(
                   zip_code, street, number, complement, neighborhood, city, state
         "#,
     )
-    .bind(id.parse::<uuid::Uuid>().map_err(|_| AppError::bad_request("Invalid company ID"))?)
+    .bind(&id)
     .bind(revenda_id)
     .fetch_optional(&state.pool)
     .await

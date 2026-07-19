@@ -1,6 +1,5 @@
 use chrono::{DateTime, Utc};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
@@ -13,7 +12,7 @@ pub enum Action {
 #[allow(dead_code)]
 #[derive(Debug, FromRow)]
 pub struct AccessRule {
-    pub id: Uuid,
+    pub id: String,
     pub role: String,
     pub resource: String,
     pub can_read: bool,

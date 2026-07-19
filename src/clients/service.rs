@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{Client, CreateClientRequest, UpdateClientRequest};
@@ -14,10 +13,7 @@ impl ClientService {
     }
 
     pub async fn create(&self, request: CreateClientRequest) -> Result<Client, AppError> {
-        let revenda_id = request.revenda_id.as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
+        let revenda_id = request.revenda_id.clone();
 
         let client = sqlx::query_as::<_, Client>(
             r#"
@@ -87,8 +83,8 @@ impl ClientService {
             RETURNING id
             "#,
         )
-        .bind(client.id)
-        .bind(client.revenda_id)
+        .bind(&client.id)
+        .bind(&client.revenda_id)
         .bind(&client.name)
         .bind(&generated_subdomain)
         .bind(&company_name)
@@ -118,7 +114,7 @@ impl ClientService {
                 VALUES ($1, $2, true)
                 "#,
             )
-            .bind(company.id)
+            .bind(&company.id)
             .bind(slug)
             .fetch_optional(&mut *tx)
             .await
@@ -133,10 +129,6 @@ impl ClientService {
 
     pub async fn find_all(&self, revenda_id: Option<&str>) -> Result<Vec<Client>, AppError> {
         let rows = if let Some(revenda_id) = revenda_id {
-            let revenda_uuid: Uuid = revenda_id
-                .parse()
-                .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
             sqlx::query_as::<_, Client>(
                 r#"
                 SELECT id, revenda_id, name, document, document_type, email, phone,
@@ -148,7 +140,7 @@ impl ClientService {
                 ORDER BY created_at DESC
                 "#,
             )
-            .bind(revenda_uuid)
+            .bind(revenda_id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -172,8 +164,6 @@ impl ClientService {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Client, AppError> {
-        let client_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid client ID"))?;
-
         let client = sqlx::query_as::<_, Client>(
             r#"
             SELECT id, revenda_id, name, document, document_type, email, phone,
@@ -184,7 +174,7 @@ impl ClientService {
             WHERE id = $1
             "#,
         )
-        .bind(client_uuid)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -194,11 +184,9 @@ impl ClientService {
     }
 
     pub async fn update(&self, id: &str, request: UpdateClientRequest) -> Result<Client, AppError> {
-        let client_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid client ID"))?;
-
         let existing = self.find_by_id(id).await?;
 
-        let name = request.name.unwrap_or(existing.name);
+        let name = request.name.unwrap_or_else(|| existing.name.clone());
         let document = request.document.or(existing.document);
         let document_type = request.document_type.or(existing.document_type);
         let email = request.email.or(existing.email);
@@ -229,7 +217,7 @@ impl ClientService {
                       created_at, updated_at
             "#,
         )
-        .bind(client_uuid)
+        .bind(id)
         .bind(&name)
         .bind(&document)
         .bind(&document_type)
@@ -255,12 +243,10 @@ impl ClientService {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), AppError> {
-        let client_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid client ID"))?;
-
         let result = sqlx::query(
             r#"DELETE FROM clients WHERE id = $1"#,
         )
-        .bind(client_uuid)
+        .bind(id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;

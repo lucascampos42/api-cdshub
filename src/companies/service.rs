@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{Company, CreateCompanyRequest, UpdateCompanyRequest};
@@ -14,25 +13,10 @@ impl CompanyService {
     }
 
     pub async fn create(&self, request: CreateCompanyRequest) -> Result<Company, AppError> {
-        let revenda_id = request.revenda_id.as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
-        let client_id = request.client_id.as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid client ID"))?;
-
-        let parent_company_id = request.parent_company_id.as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid parent company ID"))?;
-
-        let parent_revenda_id = request.parent_revenda_id.as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid parent revenda ID"))?;
+        let revenda_id = request.revenda_id.clone();
+        let client_id = request.client_id.clone();
+        let parent_company_id = request.parent_company_id.clone();
+        let parent_revenda_id = request.parent_revenda_id.clone();
 
         let company = sqlx::query_as::<_, Company>(
             r#"
@@ -77,10 +61,6 @@ impl CompanyService {
 
     pub async fn find_all(&self, revenda_id: Option<&str>) -> Result<Vec<Company>, AppError> {
         let rows = if let Some(revenda_id) = revenda_id {
-            let revenda_uuid: Uuid = revenda_id
-                .parse()
-                .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
             sqlx::query_as::<_, Company>(
                 r#"
                 SELECT id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
@@ -92,7 +72,7 @@ impl CompanyService {
                 ORDER BY created_at DESC
                 "#,
             )
-            .bind(revenda_uuid)
+            .bind(revenda_id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -116,8 +96,6 @@ impl CompanyService {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<Company, AppError> {
-        let company_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
         let company = sqlx::query_as::<_, Company>(
             r#"
             SELECT id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
@@ -128,7 +106,7 @@ impl CompanyService {
             WHERE id = $1
             "#,
         )
-        .bind(company_uuid)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -138,25 +116,13 @@ impl CompanyService {
     }
 
     pub async fn update(&self, id: &str, request: UpdateCompanyRequest) -> Result<Company, AppError> {
-        let company_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
         let existing = self.find_by_id(id).await?;
 
-        let name = request.name.unwrap_or(existing.name);
-        let subdomain = request.subdomain.or(existing.subdomain);
+        let name = request.name.unwrap_or_else(|| existing.name.clone());
+        let subdomain = request.subdomain.or(existing.subdomain.clone());
         let active = request.active.unwrap_or(existing.active);
-        let parent_company_id = request.parent_company_id
-            .as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid parent company ID"))?
-            .or(existing.parent_company_id);
-        let parent_revenda_id = request.parent_revenda_id
-            .as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid parent revenda ID"))?
-            .or(existing.parent_revenda_id);
+        let parent_company_id = request.parent_company_id.clone().or(existing.parent_company_id.clone());
+        let parent_revenda_id = request.parent_revenda_id.clone().or(existing.parent_revenda_id.clone());
         let db_connection_string = request.db_connection_string.or(existing.db_connection_string);
         let email = request.email.or(existing.email);
         let phone = request.phone.or(existing.phone);
@@ -185,7 +151,7 @@ impl CompanyService {
                       zip_code, street, number, complement, neighborhood, city, state
             "#,
         )
-        .bind(company_uuid)
+        .bind(id)
         .bind(&name)
         .bind(&subdomain)
         .bind(active)
@@ -212,12 +178,10 @@ impl CompanyService {
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), AppError> {
-        let company_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
         let result = sqlx::query(
             r#"UPDATE companies SET active = false, updated_at = NOW() WHERE id = $1"#,
         )
-        .bind(company_uuid)
+        .bind(id)
         .execute(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -234,8 +198,6 @@ impl CompanyService {
     }
 
     pub async fn set_demo_mode(&self, id: &str, enabled: bool) -> Result<Company, AppError> {
-        let company_uuid: Uuid = id.parse().map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
         let company = sqlx::query_as::<_, Company>(
             r#"
             UPDATE companies
@@ -247,7 +209,7 @@ impl CompanyService {
                       zip_code, street, number, complement, neighborhood, city, state
             "#,
         )
-        .bind(company_uuid)
+        .bind(id)
         .bind(enabled)
         .fetch_optional(&self.pool)
         .await

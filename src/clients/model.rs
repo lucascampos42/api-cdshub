@@ -1,12 +1,11 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
-use uuid::Uuid;
 
 #[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
 pub struct Client {
-    pub id: Uuid,
-    pub revenda_id: Option<Uuid>,
+    pub id: String,
+    pub revenda_id: Option<String>,
     pub name: String,
     pub document: Option<String>,
     pub document_type: Option<String>,

@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 pub use crate::users::model::{CreateUserRequest, CreateUserResponse, UpdateUserRequest, User, UserResponse};
 
@@ -33,8 +32,6 @@ impl UserService {
     }
 
     pub async fn find_by_id(&self, id: &str) -> Result<User, crate::errors::AppError> {
-        let user_uuid: Uuid = id.parse().map_err(|_| crate::errors::AppError::bad_request("Invalid user ID"))?;
-
         let row = sqlx::query_as::<_, User>(
             r#"
             SELECT id, name, email, password_hash, role, revenda_id, active,
@@ -45,7 +42,7 @@ impl UserService {
             WHERE id = $1
             "#,
         )
-        .bind(user_uuid)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?
@@ -56,10 +53,6 @@ impl UserService {
 
     pub async fn list_users(&self, revenda_id: Option<&str>) -> Result<Vec<UserResponse>, crate::errors::AppError> {
         let rows = if let Some(revenda_id) = revenda_id {
-            let revenda_uuid: Uuid = revenda_id
-                .parse()
-                .map_err(|_| crate::errors::AppError::bad_request("Invalid revenda ID"))?;
-
             sqlx::query_as::<_, User>(
                 r#"
                 SELECT id, name, email, password_hash, role, revenda_id, active,
@@ -71,7 +64,7 @@ impl UserService {
                 ORDER BY created_at DESC
                 "#,
             )
-            .bind(revenda_uuid)
+            .bind(revenda_id)
             .fetch_all(&self.pool)
             .await
             .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?
@@ -127,12 +120,7 @@ impl UserService {
             .map_err(|e| crate::errors::AppError::internal(format!("Failed to hash password: {}", e)))?;
 
         let user_type = crate::common::types::UserType::ClienteFuncionario;
-        let revenda_uuid = request
-            .revenda_id
-            .as_deref()
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid revenda ID"))?;
+        let revenda_uuid = request.revenda_id.clone();
 
         let user = sqlx::query_as::<_, User>(
             r#"
@@ -167,15 +155,13 @@ impl UserService {
         id: &str,
         request: UpdateUserRequest,
     ) -> Result<UserResponse, crate::errors::AppError> {
-        let user_uuid: Uuid = id.parse().map_err(|_| crate::errors::AppError::bad_request("Invalid user ID"))?;
-
         let user = self.find_by_id(id).await?;
 
-        let name = request.name.unwrap_or(user.name);
-        let email = request.email.unwrap_or(user.email);
-        let username = request.username.unwrap_or(user.username);
+        let name = request.name.unwrap_or_else(|| user.name.clone());
+        let email = request.email.unwrap_or_else(|| user.email.clone());
+        let username = request.username.unwrap_or_else(|| user.username.clone());
         let cpf = request.cpf.or(user.cpf);
-        let role = request.role.unwrap_or(user.role);
+        let role = request.role.unwrap_or_else(|| user.role.clone());
         let active = request.active.unwrap_or(user.active);
 
         let user_type_str = request.user_type.unwrap_or(user.user_type.to_string());
@@ -195,7 +181,7 @@ impl UserService {
                       two_factor_secret, is_two_factor_enabled
             "#,
         )
-        .bind(user_uuid)
+        .bind(id)
         .bind(&name)
         .bind(&email)
         .bind(&username)
@@ -216,14 +202,10 @@ impl UserService {
         user_id: &str,
         hashed_token: Option<&str>,
     ) -> Result<(), crate::errors::AppError> {
-        let user_uuid: Uuid = user_id
-            .parse()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid user ID"))?;
-
         sqlx::query(
             r#"UPDATE users SET hashed_refresh_token = $2, updated_at = NOW() WHERE id = $1"#,
         )
-        .bind(user_uuid)
+        .bind(user_id)
         .bind(hashed_token)
         .execute(&self.pool)
         .await
@@ -237,20 +219,11 @@ impl UserService {
         user_id: &str,
         company_id: Option<&str>,
     ) -> Result<(), crate::errors::AppError> {
-        let user_uuid: Uuid = user_id
-            .parse()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid user ID"))?;
-
-        let company_uuid = company_id
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid company ID"))?;
-
         sqlx::query(
             r#"UPDATE users SET current_company_id = $2, updated_at = NOW() WHERE id = $1"#,
         )
-        .bind(user_uuid)
-        .bind(company_uuid)
+        .bind(user_id)
+        .bind(company_id)
         .execute(&self.pool)
         .await
         .map_err(|e| crate::errors::AppError::internal(format!("Database error: {}", e)))?;
@@ -264,14 +237,10 @@ impl UserService {
         secret: Option<&str>,
         enabled: bool,
     ) -> Result<(), crate::errors::AppError> {
-        let user_uuid: Uuid = user_id
-            .parse()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid user ID"))?;
-
         sqlx::query(
             r#"UPDATE users SET two_factor_secret = $2, is_two_factor_enabled = $3, updated_at = NOW() WHERE id = $1"#,
         )
-        .bind(user_uuid)
+        .bind(user_id)
         .bind(secret)
         .bind(enabled)
         .execute(&self.pool)
@@ -378,14 +347,10 @@ impl UserService {
         let new_hash = crate::common::password::hash_password(new_password)
             .map_err(|e| crate::errors::AppError::internal(format!("Failed to hash password: {}", e)))?;
 
-        let user_uuid: Uuid = user_id
-            .parse()
-            .map_err(|_| crate::errors::AppError::bad_request("Invalid user ID"))?;
-
         sqlx::query(
             r#"UPDATE users SET password_hash = $2, must_change_password = false, updated_at = NOW() WHERE id = $1"#,
         )
-        .bind(user_uuid)
+        .bind(user_id)
         .bind(&new_hash)
         .execute(&self.pool)
         .await

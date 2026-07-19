@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{CreateSuggestionRequest, PaginatedSuggestions, PaginationMeta, Suggestion, SuggestionResponse, SuggestionStatus};
@@ -91,9 +90,7 @@ impl SuggestionService {
         user_id: Option<&str>,
     ) -> Result<SuggestionResponse, AppError> {
         let created_by_id = user_id
-            .map(|id| id.parse::<Uuid>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid user ID"))?;
+            .map(|s| s.to_string());
 
         let suggestion = sqlx::query_as::<_, Suggestion>(
             r#"
@@ -114,9 +111,6 @@ impl SuggestionService {
     }
 
     pub async fn vote(&self, id: &str) -> Result<SuggestionResponse, AppError> {
-        let suggestion_uuid: Uuid = id.parse()
-            .map_err(|_| AppError::bad_request("Invalid suggestion ID"))?;
-
         let suggestion = sqlx::query_as::<_, Suggestion>(
             r#"
             UPDATE suggestions
@@ -125,7 +119,7 @@ impl SuggestionService {
             RETURNING id, title, description, system, status, votes, created_by_id, created_at, updated_at
             "#,
         )
-        .bind(suggestion_uuid)
+        .bind(id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -139,9 +133,6 @@ impl SuggestionService {
         id: &str,
         status: SuggestionStatus,
     ) -> Result<SuggestionResponse, AppError> {
-        let suggestion_uuid: Uuid = id.parse()
-            .map_err(|_| AppError::bad_request("Invalid suggestion ID"))?;
-
         let status_str = status.to_string();
 
         let suggestion = sqlx::query_as::<_, Suggestion>(
@@ -152,7 +143,7 @@ impl SuggestionService {
             RETURNING id, title, description, system, status, votes, created_by_id, created_at, updated_at
             "#,
         )
-        .bind(suggestion_uuid)
+        .bind(id)
         .bind(&status_str)
         .fetch_optional(&self.pool)
         .await

@@ -1,5 +1,4 @@
 use sqlx::PgPool;
-use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{find_system_by_slug, get_all_systems, SystemInfo};
@@ -21,9 +20,6 @@ impl SystemService {
         find_system_by_slug(system_slug)
             .ok_or_else(|| AppError::not_found("System not found"))?;
 
-        let revenda_uuid: Uuid = revenda_id.parse()
-            .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
         sqlx::query(
             r#"
             INSERT INTO revenda_systems (revenda_id, system_slug)
@@ -31,7 +27,7 @@ impl SystemService {
             ON CONFLICT (revenda_id, system_slug) DO NOTHING
             "#,
         )
-        .bind(revenda_uuid)
+        .bind(revenda_id)
         .bind(system_slug)
         .execute(&self.pool)
         .await
@@ -41,13 +37,10 @@ impl SystemService {
     }
 
     pub async fn unassign_from_revenda(&self, revenda_id: &str, system_slug: &str) -> Result<(), AppError> {
-        let revenda_uuid: Uuid = revenda_id.parse()
-            .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
         let result = sqlx::query(
             r#"DELETE FROM revenda_systems WHERE revenda_id = $1 AND system_slug = $2"#,
         )
-        .bind(revenda_uuid)
+        .bind(revenda_id)
         .bind(system_slug)
         .execute(&self.pool)
         .await
@@ -61,13 +54,10 @@ impl SystemService {
     }
 
     pub async fn find_by_revenda(&self, revenda_id: &str) -> Result<Vec<SystemInfo>, AppError> {
-        let revenda_uuid: Uuid = revenda_id.parse()
-            .map_err(|_| AppError::bad_request("Invalid revenda ID"))?;
-
         let rows = sqlx::query_scalar::<_, String>(
             r#"SELECT system_slug FROM revenda_systems WHERE revenda_id = $1"#,
         )
-        .bind(revenda_uuid)
+        .bind(revenda_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -87,13 +77,10 @@ impl SystemService {
         system_slug: &str,
         active: bool,
     ) -> Result<(), AppError> {
-        let company_uuid: Uuid = company_id.parse()
-            .map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
-        let revenda_id = sqlx::query_scalar::<_, Uuid>(
+        let revenda_id = sqlx::query_scalar::<_, String>(
             r#"SELECT revenda_id FROM companies WHERE id = $1 AND revenda_id IS NOT NULL"#,
         )
-        .bind(company_uuid)
+        .bind(company_id)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
@@ -102,7 +89,7 @@ impl SystemService {
         let has_access = sqlx::query_scalar::<_, bool>(
             r#"SELECT EXISTS(SELECT 1 FROM revenda_systems WHERE revenda_id = $1 AND system_slug = $2)"#,
         )
-        .bind(revenda_id)
+        .bind(&revenda_id)
         .bind(system_slug)
         .fetch_one(&self.pool)
         .await
@@ -119,7 +106,7 @@ impl SystemService {
             ON CONFLICT (company_id, system_slug) DO UPDATE SET active = $3
             "#,
         )
-        .bind(company_uuid)
+        .bind(company_id)
         .bind(system_slug)
         .bind(active)
         .execute(&self.pool)
@@ -130,9 +117,6 @@ impl SystemService {
     }
 
     pub async fn find_by_company(&self, company_id: &str) -> Result<Vec<serde_json::Value>, AppError> {
-        let company_uuid: Uuid = company_id.parse()
-            .map_err(|_| AppError::bad_request("Invalid company ID"))?;
-
         #[derive(sqlx::FromRow)]
         struct CompanySystemRow {
             system_slug: String,
@@ -142,7 +126,7 @@ impl SystemService {
         let rows = sqlx::query_as::<_, CompanySystemRow>(
             r#"SELECT system_slug, active FROM company_systems WHERE company_id = $1"#,
         )
-        .bind(company_uuid)
+        .bind(company_id)
         .fetch_all(&self.pool)
         .await
         .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
@@ -153,7 +137,7 @@ impl SystemService {
             .map(|row| {
                 let system_info = all_systems.iter().find(|s| s.slug == row.system_slug);
                 serde_json::json!({
-                    "companyId": company_uuid,
+                    "companyId": company_id,
                     "systemSlug": row.system_slug,
                     "active": row.active,
                     "system": system_info.map(|s| serde_json::json!({
