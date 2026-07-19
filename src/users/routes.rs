@@ -7,7 +7,7 @@ use crate::common::validation;
 use crate::errors::AppError;
 use crate::rbac::model::Action;
 use crate::rbac::service::check_permission;
-use crate::users::model::{CreateUserRequest, UpdateUserRequest, UserResponse};
+use crate::users::model::{CreateUserRequest, UpdateUserRequest};
 use crate::users::service::UserService;
 use crate::AppState;
 
@@ -121,12 +121,12 @@ pub async fn get_user(
     check_permission(&state.db, &auth.user_type, Action::Read, "User").await?;
 
     let service = UserService::new(state.db.clone());
-    let user = service.find_by_id(&id).await?;
+    let user = service.find_by_id_response(&id).await?;
 
     // Revenda só acessa usuário da sua própria revenda
     assert_revenda_access(&auth, user.revenda_id.as_deref())?;
 
-    Ok(Json(serde_json::to_value(UserResponse::from(user))?))
+    Ok(Json(serde_json::to_value(user)?))
 }
 
 #[utoipa::path(

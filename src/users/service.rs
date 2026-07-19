@@ -6,10 +6,65 @@ use uuid::Uuid;
 
 use crate::common::pagination::{PaginationMeta, PaginatedResponse};
 use crate::common::types::UserType;
-use crate::entities::users;
+use crate::entities::{user_companies, users};
 use crate::errors::AppError;
 
 use super::model::{CreateUserRequest, CreateUserResponse, UpdateUserRequest, User, UserResponse};
+
+impl UserService {
+    async fn user_to_response(&self, model: users::Model) -> Result<UserResponse, AppError> {
+        let company_ids = user_companies::Entity::find()
+            .filter(user_companies::Column::UserId.eq(&model.id))
+            .all(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .into_iter()
+            .map(|uc| uc.company_id)
+            .collect();
+
+        let mut resp: UserResponse = User::from(model).into();
+        resp.company_ids = company_ids;
+        Ok(resp)
+    }
+}
+
+fn validate_user_type_rules(
+    user_type: &UserType,
+    revenda_id: Option<&str>,
+    company_ids: &Option<Vec<String>>,
+) -> Result<(), AppError> {
+    match user_type {
+        UserType::CodesdevsSuperadmin | UserType::CodesdevsSuporte => {
+            if revenda_id.is_some() {
+                return Err(AppError::bad_request(
+                    "Codesdevs users should not be linked to a revenda",
+                ));
+            }
+        }
+        t if t.to_string().starts_with("REVENDA_") => {
+            if revenda_id.is_none() {
+                return Err(AppError::bad_request(
+                    "Revenda users must be linked to a revenda",
+                ));
+            }
+        }
+        t if t.to_string().starts_with("CLIENTE_") => {
+            if let Some(ids) = company_ids {
+                if ids.is_empty() {
+                    return Err(AppError::bad_request(
+                        "Client users must be linked to at least one company",
+                    ));
+                }
+            } else {
+                return Err(AppError::bad_request(
+                    "Client users must be linked to at least one company",
+                ));
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
 
 pub struct UserService {
     db: DatabaseConnection,
@@ -46,6 +101,16 @@ impl UserService {
         Ok(user.into())
     }
 
+    pub async fn find_by_id_response(&self, id: &str) -> Result<UserResponse, AppError> {
+        let model = users::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        self.user_to_response(model).await
+    }
+
     pub async fn list_users(
         &self,
         revenda_id: Option<&str>,
@@ -73,8 +138,13 @@ impl UserService {
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
+        let mut items = Vec::with_capacity(rows.len());
+        for row in rows {
+            items.push(self.user_to_response(row).await?);
+        }
+
         Ok(PaginatedResponse {
-            items: rows.into_iter().map(UserResponse::from).collect(),
+            items,
             meta: PaginationMeta::new(total, page as i64, limit as i64),
         })
     }
@@ -103,36 +173,61 @@ impl UserService {
             return Err(AppError::conflict("Username already exists"));
         }
 
+        let user_type: UserType = request.user_type.as_deref()
+            .map(|s| s.parse::<UserType>())
+            .transpose()
+            .map_err(|_| AppError::bad_request("Invalid user type"))?
+            .unwrap_or(UserType::ClienteFuncionario);
+
+        validate_user_type_rules(&user_type, request.revenda_id.as_deref(), &request.company_ids)?;
+
         let temporary_password = crate::common::password::generate_random_password(12);
         let password_hash = crate::common::password::hash_password(&temporary_password)
             .map_err(|e| AppError::internal(format!("Failed to hash password: {}", e)))?;
 
-        let user_type: crate::entities::sea_orm_active_enums::UserType = request.user_type.as_deref()
-            .map(|s| s.parse::<UserType>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid user type"))?
-            .unwrap_or(UserType::ClienteFuncionario)
-            .into();
+        let db_user_type: crate::entities::sea_orm_active_enums::UserType = user_type.clone().into();
+
+        let role = request.role.clone();
+        let now = chrono::Utc::now().naive_utc();
 
         let user = users::ActiveModel {
             id: Set(Uuid::new_v4().to_string()),
             name: Set(request.name),
             email: Set(request.email),
             password_hash: Set(password_hash),
-            role: Set(request.role),
+            role: Set(role.clone()),
             revenda_id: Set(request.revenda_id),
-            user_type: Set(user_type),
+            user_type: Set(db_user_type),
             username: Set(request.username),
             cpf: Set(request.cpf),
             must_change_password: Set(true),
+            created_at: Set(now),
+            updated_at: Set(now),
             ..Default::default()
         };
 
         let result = user.insert(&self.db).await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
+        if let Some(company_ids) = &request.company_ids {
+            for company_id in company_ids {
+                let uc = user_companies::ActiveModel {
+                    id: Set(Uuid::new_v4().to_string()),
+                    user_id: Set(result.id.clone()),
+                    company_id: Set(company_id.clone()),
+                    role: Set(role.clone()),
+                    is_default: Set(false),
+                    ..Default::default()
+                };
+                uc.insert(&self.db).await
+                    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            }
+        }
+
+        let user_resp = self.user_to_response(result).await?;
+
         Ok(CreateUserResponse {
-            user: UserResponse::from(result),
+            user: user_resp,
             temporary_password,
         })
     }
@@ -147,6 +242,22 @@ impl UserService {
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
             .ok_or_else(|| AppError::not_found("User not found"))?;
+
+        let existing_user_type: UserType = model.user_type.clone().into();
+
+        let new_user_type: Option<UserType> = request.user_type.as_deref()
+            .map(|s| s.parse::<UserType>())
+            .transpose()
+            .map_err(|_| AppError::bad_request("Invalid user type"))?;
+
+        let effective_type = new_user_type.as_ref().unwrap_or(&existing_user_type);
+
+        let effective_revenda_id = match &request.revenda_id {
+            Some(val) => val.as_deref(),
+            None => model.revenda_id.as_deref(),
+        };
+
+        validate_user_type_rules(effective_type, effective_revenda_id, &request.company_ids)?;
 
         let mut active: users::ActiveModel = model.into();
 
@@ -175,11 +286,37 @@ impl UserService {
                 .into();
             active.user_type = Set(ut);
         }
+        if let Some(revenda_id) = request.revenda_id {
+            active.revenda_id = Set(revenda_id);
+        }
 
+        let user_id = active.id.clone().unwrap();
         let result = active.update(&self.db).await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-        Ok(UserResponse::from(result))
+        if let Some(company_ids) = request.company_ids {
+            user_companies::Entity::delete_many()
+                .filter(user_companies::Column::UserId.eq(&user_id))
+                .exec(&self.db)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+
+            for company_id in &company_ids {
+                let uc = user_companies::ActiveModel {
+                    id: Set(Uuid::new_v4().to_string()),
+                    user_id: Set(user_id.clone()),
+                    company_id: Set(company_id.clone()),
+                    role: Set(result.role.clone()),
+                    is_default: Set(false),
+                    ..Default::default()
+                };
+                uc.insert(&self.db).await
+                    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            }
+        }
+
+        let user_resp = self.user_to_response(result).await?;
+        Ok(user_resp)
     }
 
     pub async fn update_refresh_token(

@@ -1,6 +1,7 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Ticket {
     pub id: String,
     pub revenda_id: String,
@@ -18,6 +19,7 @@ pub struct Ticket {
 }
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TicketAction {
     pub id: String,
     pub ticket_id: String,
@@ -27,6 +29,7 @@ pub struct TicketAction {
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TicketWithDetails {
     pub id: String,
     pub revenda_id: String,
@@ -78,6 +81,7 @@ pub struct CreateActionRequest {
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct TicketStats {
     pub total: i64,
     pub aguardando: i64,

@@ -1,6 +1,7 @@
 use serde::Serialize;
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PaginationMeta {
     pub total: i64,
     pub page: i64,
@@ -20,6 +21,7 @@ impl PaginationMeta {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct PaginatedResponse<T: Serialize> {
     pub items: Vec<T>,
     pub meta: PaginationMeta,

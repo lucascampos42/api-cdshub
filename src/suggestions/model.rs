@@ -3,6 +3,7 @@ use std::str::FromStr;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Suggestion {
     pub id: String,
     pub title: String,
@@ -67,6 +68,7 @@ impl std::str::FromStr for SuggestionStatus {
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct SuggestionResponse {
     pub id: String,
     pub title: String,
@@ -110,12 +112,14 @@ pub struct UpdateSuggestionStatusRequest {
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct PaginatedSuggestions {
     pub items: Vec<SuggestionResponse>,
     pub meta: PaginationMeta,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct PaginationMeta {
     pub total: i64,
     pub page: i64,

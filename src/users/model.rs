@@ -5,6 +5,7 @@ use crate::common::types::UserType;
 use crate::entities::users;
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct User {
     pub id: String,
     pub name: String,
@@ -36,6 +37,7 @@ pub struct CreateUserRequest {
     pub role: String,
     pub revenda_id: Option<String>,
     pub user_type: Option<String>,
+    pub company_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -48,9 +50,12 @@ pub struct UpdateUserRequest {
     pub role: Option<String>,
     pub active: Option<bool>,
     pub user_type: Option<String>,
+    pub revenda_id: Option<Option<String>>,
+    pub company_ids: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct UserResponse {
     pub id: String,
     pub name: String,
@@ -66,6 +71,7 @@ pub struct UserResponse {
     pub current_company_id: Option<String>,
     pub user_type: UserType,
     pub is_two_factor_enabled: bool,
+    pub company_ids: Vec<String>,
 }
 
 impl From<users::Model> for User {
@@ -108,13 +114,8 @@ impl From<User> for UserResponse {
             current_company_id: user.current_company_id,
             user_type: user.user_type,
             is_two_factor_enabled: user.is_two_factor_enabled,
+            company_ids: vec![],
         }
-    }
-}
-
-impl From<users::Model> for UserResponse {
-    fn from(u: users::Model) -> Self {
-        User::from(u).into()
     }
 }
 

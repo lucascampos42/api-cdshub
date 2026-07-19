@@ -6,6 +6,7 @@ use super::contact::Contact;
 use super::tax_info::TaxInfo;
 
 #[derive(Debug, Serialize, Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct Company {
     pub id: String,
     pub name: String,
