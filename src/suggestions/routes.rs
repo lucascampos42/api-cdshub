@@ -27,7 +27,7 @@ pub async fn list_suggestions(
     State(state): State<AppState>,
     Query(params): Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let service = SuggestionService::new(state.pool.clone());
+    let service = SuggestionService::new(state.db.clone());
     let system = params.get("system").map(|s| s.as_str());
     let page = params.get("page")
         .and_then(|p| p.parse::<i64>().ok())
@@ -56,9 +56,9 @@ pub async fn create_suggestion(
     auth: AuthUser,
     Json(request): Json<CreateSuggestionRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Create, "Suggestion").await?;
+    check_permission(&state.db, &auth.user_type, Action::Create, "Suggestion").await?;
 
-    let service = SuggestionService::new(state.pool.clone());
+    let service = SuggestionService::new(state.db.clone());
     let suggestion = service.create(request, Some(&auth.user_id)).await?;
 
     Ok((
@@ -83,7 +83,7 @@ pub async fn vote_suggestion(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let service = SuggestionService::new(state.pool.clone());
+    let service = SuggestionService::new(state.db.clone());
     let suggestion = service.vote(&id).await?;
 
     Ok(Json(serde_json::to_value(suggestion).unwrap()))
@@ -108,9 +108,9 @@ pub async fn update_suggestion_status(
     Path(id): Path<String>,
     Json(request): Json<UpdateSuggestionStatusRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Suggestion").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Suggestion").await?;
 
-    let service = SuggestionService::new(state.pool.clone());
+    let service = SuggestionService::new(state.db.clone());
     let suggestion = service.update_status(&id, request.status).await?;
 
     Ok(Json(serde_json::to_value(suggestion).unwrap()))

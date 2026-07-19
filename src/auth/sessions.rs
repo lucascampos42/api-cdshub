@@ -1,5 +1,8 @@
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -76,7 +79,10 @@ impl SessionService {
         Ok(count > 0)
     }
 
-    pub async fn list_sessions(&self, user_id: &str) -> Result<Vec<SessionResponse>, sea_orm::DbErr> {
+    pub async fn list_sessions(
+        &self,
+        user_id: &str,
+    ) -> Result<Vec<SessionResponse>, sea_orm::DbErr> {
         let rows = sessions::Entity::find()
             .filter(sessions::Column::UserId.eq(user_id))
             .filter(sessions::Column::ExpiresAt.gte(Utc::now().naive_utc()))

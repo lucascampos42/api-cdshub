@@ -3,12 +3,12 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 
+use super::model::{CreateClientRequest, UpdateClientRequest};
+use super::service::ClientService;
 use crate::auth::middleware::AuthUser;
 use crate::errors::AppError;
 use crate::rbac::model::Action;
 use crate::rbac::service::check_permission;
-use super::model::{CreateClientRequest, UpdateClientRequest};
-use super::service::ClientService;
 use crate::AppState;
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -31,7 +31,7 @@ pub async fn create_client(
     auth: AuthUser,
     Json(mut request): Json<CreateClientRequest>,
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Create, "Client").await?;
+    check_permission(&state.db, &auth.user_type, Action::Create, "Client").await?;
 
     if auth.user_type == "REVENDA_ADMIN" && request.revenda_id.is_none() {
         if let Some(revenda_id) = &auth.revenda_id {
@@ -39,8 +39,7 @@ pub async fn create_client(
         }
     }
 
-    let service = ClientService::new(state.pool.clone());
-    let client = service.create(request).await?;
+    let service = ClientService::new(state.pool.clone().into());
 
     Ok((
         StatusCode::CREATED,
@@ -64,7 +63,7 @@ pub async fn list_clients(
     auth: AuthUser,
     axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Client").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Client").await?;
 
     let service = ClientService::new(state.pool.clone());
 
@@ -96,7 +95,7 @@ pub async fn get_client(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Read, "Client").await?;
+    check_permission(&state.db, &auth.user_type, Action::Read, "Client").await?;
 
     let service = ClientService::new(state.pool.clone());
     let client = service.find_by_id(&id).await?;
@@ -123,7 +122,7 @@ pub async fn update_client(
     Path(id): Path<String>,
     Json(request): Json<UpdateClientRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Client").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Client").await?;
 
     let service = ClientService::new(state.pool.clone());
     let client = service.update(&id, request).await?;
@@ -148,7 +147,7 @@ pub async fn delete_client(
     auth: AuthUser,
     Path(id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Delete, "Client").await?;
+    check_permission(&state.db, &auth.user_type, Action::Delete, "Client").await?;
 
     let service = ClientService::new(state.pool.clone());
     service.delete(&id).await?;
@@ -175,7 +174,7 @@ pub async fn update_client_revenda(
     Path(id): Path<String>,
     Json(payload): Json<UpdateRevendaPayload>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    check_permission(&state.pool, &auth.user_type, Action::Update, "Client").await?;
+    check_permission(&state.db, &auth.user_type, Action::Update, "Client").await?;
 
     let revenda_id = payload.revenda_id;
 
