@@ -35,12 +35,17 @@ uuid = { version = "1", features = ["v4", "serde"] }
 # Environment
 dotenvy = "0.15"
 
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-axum = "0.2"
+utoipa-scalar = { version = "0.2", features = ["axum"] }
+
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [dev-dependencies]
-cargo-watch = "0.6"
-
-[scripts]
-watch = "cargo watch -- cmd cargo run"
+cargo-watch = "8.5"
