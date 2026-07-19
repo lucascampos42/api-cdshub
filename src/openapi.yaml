@@ -1,0 +1,26 @@
+openapi: 3.0.1
+info:
+  title: API CDS Hub
+  version: "1.0"
+paths:
+  /api/auth/login:
+    post:
+      summary: Login de usuário
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email: { type: string }
+                password: { type: string }
+      responses:
+        "200":
+          description: Sucesso
+  /api/users:
+    get:
+      summary: Listar usuários
+      responses:
+        "200":
+          description: Lista de usuários

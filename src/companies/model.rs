@@ -1,0 +1,75 @@
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use sqlx::FromRow;
+use uuid::Uuid;
+
+#[derive(Debug, Serialize, Deserialize, FromRow, utoipa::ToSchema)]
+pub struct Company {
+    pub id: Uuid,
+    pub name: String,
+    pub revenda_id: Option<Uuid>,
+    pub client_id: Option<Uuid>,
+    pub subdomain: Option<String>,
+    pub active: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+    pub schema_name: Option<String>,
+    pub parent_company_id: Option<Uuid>,
+    pub parent_revenda_id: Option<Uuid>,
+    pub db_connection_string: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub document: Option<String>,
+    pub document_type: Option<String>,
+    pub zip_code: Option<String>,
+    pub street: Option<String>,
+    pub number: Option<String>,
+    pub complement: Option<String>,
+    pub neighborhood: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct CreateCompanyRequest {
+    pub name: String,
+    pub revenda_id: Option<String>,
+    pub client_id: Option<String>,
+    pub subdomain: Option<String>,
+    pub schema_name: Option<String>,
+    pub parent_company_id: Option<String>,
+    pub parent_revenda_id: Option<String>,
+    pub db_connection_string: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub document: Option<String>,
+    pub document_type: Option<String>,
+    pub zip_code: Option<String>,
+    pub street: Option<String>,
+    pub number: Option<String>,
+    pub complement: Option<String>,
+    pub neighborhood: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UpdateCompanyRequest {
+    pub name: Option<String>,
+    pub subdomain: Option<String>,
+    pub active: Option<bool>,
+    pub parent_company_id: Option<String>,
+    pub parent_revenda_id: Option<String>,
+    pub db_connection_string: Option<String>,
+    pub email: Option<String>,
+    pub phone: Option<String>,
+    pub document: Option<String>,
+    pub document_type: Option<String>,
+    pub zip_code: Option<String>,
+    pub street: Option<String>,
+    pub number: Option<String>,
+    pub complement: Option<String>,
+    pub neighborhood: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+}

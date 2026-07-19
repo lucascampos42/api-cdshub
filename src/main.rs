@@ -1,0 +1,130 @@
+use axum::middleware as axum_middleware;
+use axum::routing::{delete, get, patch, post};
+use axum::Router;
+use sqlx::PgPool;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+
+mod auth;
+mod clients;
+mod common;
+mod companies;
+mod config;
+mod db;
+mod errors;
+mod openapi;
+mod rbac;
+mod revendas;
+mod suggestions;
+mod systems;
+mod users;
+
+#[derive(Clone)]
+pub struct AppState {
+    pub pool: PgPool,
+    pub config: config::Config,
+}
+
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "api_cdshub=debug,tower_http=debug".into()),
+        )
+        .init();
+
+    let config = config::Config::from_env();
+    let pool = db::create_pool(&config.database_url).await;
+
+    let state = AppState {
+        pool: pool.clone(),
+        config: config.clone(),
+    };
+
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    // Rotas públicas
+    let public_routes = Router::new()
+        .route("/api/auth/login", post(auth::routes::login))
+        .route("/api/auth/login/verify-2fa", post(auth::routes::verify_2fa))
+        .route("/api/suggestions", get(suggestions::routes::list_suggestions))
+        .route("/api/suggestions/:id/vote", patch(suggestions::routes::vote_suggestion));
+
+    // Rotas protegidas (requerem JWT)
+    let protected_routes = Router::new()
+        .route("/api/auth/refresh", post(auth::routes::refresh_token))
+        .route("/api/auth/logout", post(auth::routes::logout))
+        .route("/api/auth/switch-company", post(auth::routes::switch_company))
+        .route("/api/auth/companies-context", get(auth::routes::companies_context))
+        .route("/api/auth/sessions", get(auth::routes::list_sessions))
+        .route("/api/auth/sessions", delete(auth::routes::revoke_all_sessions))
+        .route("/api/auth/sessions/:id", delete(auth::routes::revoke_session))
+        .route("/api/auth/2fa/generate", post(auth::routes::generate_2fa))
+        .route("/api/auth/2fa/turn-on", post(auth::routes::turn_on_2fa))
+        .route("/api/auth/2fa/turn-off", post(auth::routes::turn_off_2fa))
+        .route("/api/auth/change-password", post(auth::routes::change_password))
+        .route("/api/users", post(users::routes::create_user))
+        .route("/api/users", get(users::routes::list_users))
+        .route("/api/users/:id", get(users::routes::get_user))
+        .route("/api/users/:id", patch(users::routes::update_user))
+        .route("/api/companies", post(companies::routes::create_company))
+        .route("/api/companies", get(companies::routes::list_companies))
+        .route("/api/companies/:id", get(companies::routes::get_company))
+        .route("/api/companies/:id", patch(companies::routes::update_company))
+        .route("/api/companies/:id", delete(companies::routes::delete_company))
+        .route("/api/clients", post(clients::routes::create_client))
+        .route("/api/clients", get(clients::routes::list_clients))
+        .route("/api/clients/:id", get(clients::routes::get_client))
+        .route("/api/clients/:id", patch(clients::routes::update_client))
+        .route("/api/clients/:id", delete(clients::routes::delete_client))
+        .route("/api/revendas", post(revendas::routes::create_revenda))
+        .route("/api/revendas", get(revendas::routes::list_revendas))
+        .route("/api/revendas/:id", get(revendas::routes::get_revenda))
+        .route("/api/revendas/:id", patch(revendas::routes::update_revenda))
+        .route("/api/revendas/:id", delete(revendas::routes::delete_revenda))
+        .route("/api/systems", get(systems::routes::list_master_systems))
+        .route("/api/systems/revenda/:revendaId/:slug", post(systems::routes::assign_to_revenda))
+        .route("/api/systems/revenda/:revendaId/:slug", delete(systems::routes::unassign_from_revenda))
+        .route("/api/systems/revenda/:revendaId", get(systems::routes::find_by_revenda))
+        .route("/api/systems/company/:companyId/:slug", post(systems::routes::toggle_for_company))
+        .route("/api/systems/company/:companyId", get(systems::routes::find_by_company))
+        .route("/api/suggestions", post(suggestions::routes::create_suggestion))
+        .route("/api/suggestions/:id/status", patch(suggestions::routes::update_suggestion_status))
+        .layer(axum_middleware::from_fn(auth::middleware::auth_middleware));
+
+    let app = Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        .route("/openapi.json", get(|| async {
+            axum::Json(<openapi::ApiDoc as utoipa::OpenApi>::openapi())
+        }))
+        .route("/docs", get(scalar_ui))
+        .layer(cors)
+        .layer(TraceLayer::new_for_http())
+        .with_state(state);
+
+    let addr = format!("0.0.0.0:{}", config.port);
+    tracing::info!("🚀 API CDS Hub ouvindo em {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    axum::serve(listener, app).await.unwrap();
+}
+
+async fn scalar_ui() -> axum::response::Html<String> {
+    axum::response::Html(r#"<!DOCTYPE html>
+<html>
+<head>
+    <title>CDS Hub API — Scalar</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+</head>
+<body>
+    <script id="api-reference" data-url="/openapi.json"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@scalar/api-reference"></script>
+</body>
+</html>"#.to_string())
+}

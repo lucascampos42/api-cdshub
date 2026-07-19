@@ -1,0 +1,151 @@
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::Json;
+
+use crate::auth::middleware::AuthUser;
+use crate::errors::AppError;
+use crate::rbac::model::Action;
+use crate::rbac::service::check_permission;
+use super::model::{CreateClientRequest, UpdateClientRequest};
+use super::service::ClientService;
+use crate::AppState;
+
+#[utoipa::path(
+    post,
+    path = "/api/clients",
+    tag = "Clients",
+    request_body = CreateClientRequest,
+    responses(
+        (status = 201, description = "Client created successfully"),
+        (status = 400, description = "Invalid input"),
+    )
+)]
+pub async fn create_client(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Json(mut request): Json<CreateClientRequest>,
+) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Create, "Client").await?;
+
+    if auth.user_type == "REVENDA_ADMIN" && request.revenda_id.is_none() {
+        if let Some(revenda_id) = &auth.revenda_id {
+            request.revenda_id = Some(revenda_id.clone());
+        }
+    }
+
+    let service = ClientService::new(state.pool.clone());
+    let client = service.create(request).await?;
+
+    Ok((
+        StatusCode::CREATED,
+        Json(serde_json::to_value(client).unwrap()),
+    ))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/clients",
+    tag = "Clients",
+    params(
+        ("revendaId" = Option<String>, Query, description = "Filter by revenda ID")
+    ),
+    responses(
+        (status = 200, description = "List of clients"),
+    )
+)]
+pub async fn list_clients(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    axum::extract::Query(params): axum::extract::Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Read, "Client").await?;
+
+    let service = ClientService::new(state.pool.clone());
+
+    let revenda_id = if auth.user_type == "REVENDA_ADMIN" {
+        auth.revenda_id.as_deref()
+    } else {
+        params.get("revendaId").map(|s| s.as_str())
+    };
+
+    let clients = service.find_all(revenda_id).await?;
+
+    Ok(Json(serde_json::to_value(clients).unwrap()))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/clients/{id}",
+    tag = "Clients",
+    params(
+        ("id" = String, Path, description = "Client ID")
+    ),
+    responses(
+        (status = 200, description = "Client found"),
+        (status = 404, description = "Client not found"),
+    )
+)]
+pub async fn get_client(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Read, "Client").await?;
+
+    let service = ClientService::new(state.pool.clone());
+    let client = service.find_by_id(&id).await?;
+
+    Ok(Json(serde_json::to_value(client).unwrap()))
+}
+
+#[utoipa::path(
+    patch,
+    path = "/api/clients/{id}",
+    tag = "Clients",
+    params(
+        ("id" = String, Path, description = "Client ID")
+    ),
+    request_body = UpdateClientRequest,
+    responses(
+        (status = 200, description = "Client updated successfully"),
+        (status = 404, description = "Client not found"),
+    )
+)]
+pub async fn update_client(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+    Json(request): Json<UpdateClientRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Update, "Client").await?;
+
+    let service = ClientService::new(state.pool.clone());
+    let client = service.update(&id, request).await?;
+
+    Ok(Json(serde_json::to_value(client).unwrap()))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/clients/{id}",
+    tag = "Clients",
+    params(
+        ("id" = String, Path, description = "Client ID")
+    ),
+    responses(
+        (status = 200, description = "Client deleted"),
+        (status = 404, description = "Client not found"),
+    )
+)]
+pub async fn delete_client(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path(id): Path<String>,
+) -> Result<StatusCode, AppError> {
+    check_permission(&state.pool, &auth.user_type, Action::Delete, "Client").await?;
+
+    let service = ClientService::new(state.pool.clone());
+    service.delete(&id).await?;
+
+    Ok(StatusCode::OK)
+}
