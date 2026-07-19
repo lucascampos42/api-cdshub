@@ -38,6 +38,7 @@ pub struct CreateCompanyRequest {
     pub subdomain: Option<String>,
     pub schema_name: Option<String>,
     pub parent_company_id: Option<String>,
+    #[allow(dead_code)]
     pub parent_revenda_id: Option<String>,
     pub db_connection_string: Option<String>,
     pub email: Option<String>,
@@ -60,6 +61,7 @@ pub struct UpdateCompanyRequest {
     pub subdomain: Option<String>,
     pub active: Option<bool>,
     pub parent_company_id: Option<String>,
+    #[allow(dead_code)]
     pub parent_revenda_id: Option<String>,
     pub db_connection_string: Option<String>,
     pub email: Option<String>,

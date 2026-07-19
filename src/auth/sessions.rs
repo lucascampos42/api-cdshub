@@ -12,7 +12,6 @@ pub struct SessionService {
     db: DatabaseConnection,
 }
 
-pub type Session = SessionResponse;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SessionResponse {

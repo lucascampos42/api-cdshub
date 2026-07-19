@@ -32,7 +32,7 @@ pub async fn list_tickets(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     let tickets = service.find_all(
         params.get("revendaId").map(|s| s.as_str()),
         params.get("companyId").map(|s| s.as_str()),
@@ -59,7 +59,7 @@ pub async fn get_stats(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     let stats = service.get_stats(params.get("revendaId").map(|s| s.as_str())).await?;
 
     Ok(Json(serde_json::to_value(stats).unwrap()))
@@ -84,7 +84,7 @@ pub async fn get_ticket(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     let ticket = service.find_by_id(&id).await?;
 
     Ok(Json(serde_json::to_value(ticket).unwrap()))
@@ -110,7 +110,7 @@ pub async fn create_ticket(
     let revenda_id = auth.revenda_id.as_deref()
         .ok_or_else(|| AppError::bad_request("No revenda associated with user"))?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     let ticket = service.create(request, revenda_id, &auth.user_id).await?;
 
     Ok((
@@ -140,7 +140,7 @@ pub async fn update_ticket(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Update, "Ticket").await?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     let ticket = service.update(&id, request).await?;
 
     Ok(Json(serde_json::to_value(ticket).unwrap()))
@@ -165,7 +165,7 @@ pub async fn delete_ticket(
 ) -> Result<StatusCode, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Delete, "Ticket").await?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     service.delete(&id).await?;
 
     Ok(StatusCode::OK)
@@ -192,7 +192,7 @@ pub async fn add_action(
 ) -> Result<(StatusCode, Json<serde_json::Value>), AppError> {
     check_permission(&state.db, &auth.user_type, Action::Update, "Ticket").await?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     let action = service.add_action(&ticket_id, &auth.user_id, &request.content).await?;
 
     Ok((
@@ -219,7 +219,7 @@ pub async fn get_actions(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
-    let service = TicketService::new(state.pool.clone());
+    let service = TicketService::new(state.db.clone());
     let actions = service.get_actions(&ticket_id).await?;
 
     Ok(Json(serde_json::to_value(actions).unwrap()))

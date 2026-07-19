@@ -1,118 +1,94 @@
-use sqlx::PgPool;
+use chrono::Utc;
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseBackend,
+    EntityTrait, QueryFilter, QueryOrder, Set, Statement,
+};
 use uuid::Uuid;
 
+use crate::entities::{
+    tickets as tickets_entity,
+    ticket_actions as ticket_actions_entity,
+    ticket_assignments as ticket_assignments_entity,
+    sea_orm_active_enums::{TicketPriority, TicketStatus},
+};
 use crate::errors::AppError;
 use super::model::*;
 
 pub struct TicketService {
-    pool: PgPool,
+    db: DatabaseConnection,
 }
 
 impl TicketService {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(db: DatabaseConnection) -> Self {
+        Self { db }
     }
 
-    pub async fn find_all(
-        &self,
-        revenda_id: Option<&str>,
-        company_id: Option<&str>,
-        status: Option<&str>,
-        priority: Option<&str>,
-        assigned_to_user_id: Option<&str>,
-    ) -> Result<Vec<TicketWithDetails>, AppError> {
-        let mut query = String::from(
-            r#"
-            SELECT t.id, t.revenda_id, t.company_id, t.title, t.description,
-                   t.status::TEXT as status, t.priority::TEXT as priority, t.category,
-                   t.created_by_id, t.created_at, t.updated_at, t.closed_at, t.scheduled_for
-            FROM tickets t
-            WHERE 1=1
-            "#,
-        );
-
-        let mut binds: Vec<String> = vec![];
-
-        if let Some(rid) = revenda_id {
-            binds.push(rid.to_string());
-            query.push_str(&format!(" AND t.revenda_id = ${}", binds.len()));
+    fn status_from_str(s: &str) -> TicketStatus {
+        match s {
+            "AGENDADO" => TicketStatus::Agendado,
+            "EM_EXECUCAO" => TicketStatus::EmExecucao,
+            "IMPLANTACAO" => TicketStatus::Implantacao,
+            "CONCLUIDO" => TicketStatus::Concluido,
+            "CANCELADO" => TicketStatus::Cancelado,
+            _ => TicketStatus::AguardandoAtendimento,
         }
-        if let Some(cid) = company_id {
-            binds.push(cid.to_string());
-            query.push_str(&format!(" AND t.company_id = ${}", binds.len()));
-        }
-        if let Some(s) = status {
-            binds.push(s.to_string());
-            query.push_str(&format!(" AND t.status::TEXT = ${}", binds.len()));
-        }
-        if let Some(p) = priority {
-            binds.push(p.to_string());
-            query.push_str(&format!(" AND t.priority::TEXT = ${}", binds.len()));
-        }
-        if let Some(uid) = assigned_to_user_id {
-            binds.push(uid.to_string());
-            query.push_str(&format!(
-                " AND t.id IN (SELECT ticket_id FROM ticket_assignments WHERE user_id = ${})",
-                binds.len()
-            ));
-        }
-
-        query.push_str(" ORDER BY t.created_at DESC");
-
-        let mut q = sqlx::query_as::<_, Ticket>(&query);
-        for b in &binds {
-            q = q.bind(b);
-        }
-
-        let tickets = q.fetch_all(&self.pool).await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-        let mut result = Vec::new();
-        for ticket in tickets {
-            let details = self.enrich_ticket(ticket).await?;
-            result.push(details);
-        }
-
-        Ok(result)
     }
 
-    pub async fn find_by_id(&self, id: &str) -> Result<TicketWithDetails, AppError> {
-        let ticket = sqlx::query_as::<_, Ticket>(
-            r#"
-            SELECT id, revenda_id, company_id, title, description,
-                   status::TEXT as status, priority::TEXT as priority, category,
-                   created_by_id, created_at, updated_at, closed_at, scheduled_for
-            FROM tickets
-            WHERE id = $1
-            "#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Ticket not found"))?;
+    fn priority_from_str(s: &str) -> TicketPriority {
+        match s {
+            "BAIXA" => TicketPriority::Baixa,
+            "ALTA" => TicketPriority::Alta,
+            "URGENTE" => TicketPriority::Urgente,
+            _ => TicketPriority::Media,
+        }
+    }
 
-        self.enrich_ticket(ticket).await
+    fn model_to_ticket(m: tickets_entity::Model) -> Ticket {
+        Ticket {
+            id: m.id,
+            revenda_id: m.revenda_id,
+            company_id: m.company_id,
+            title: m.title,
+            description: m.description,
+            status: format!("{:?}", m.status).to_uppercase(),
+            priority: format!("{:?}", m.priority).to_uppercase(),
+            category: m.category,
+            created_by_id: m.created_by_id,
+            created_at: m.created_at,
+            updated_at: m.updated_at,
+            closed_at: m.closed_at,
+            scheduled_for: m.scheduled_for,
+        }
     }
 
     async fn enrich_ticket(&self, ticket: Ticket) -> Result<TicketWithDetails, AppError> {
-        let company: Option<serde_json::Value> = sqlx::query_scalar(
+        // Fetch company info
+        let company_sql = Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
             r#"SELECT row_to_json(r) FROM (SELECT id, name, subdomain, email, phone FROM companies WHERE id = $1) r"#,
-        )
-        .bind(&ticket.company_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            [ticket.company_id.clone().into()],
+        );
+        let company: Option<serde_json::Value> = self.db
+            .query_one(company_sql)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .and_then(|row| row.try_get_by_index::<serde_json::Value>(0).ok());
 
-        let created_by: Option<serde_json::Value> = sqlx::query_scalar(
+        // Fetch creator info
+        let user_sql = Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
             r#"SELECT row_to_json(r) FROM (SELECT id, name, email FROM users WHERE id = $1) r"#,
-        )
-        .bind(&ticket.created_by_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            [ticket.created_by_id.clone().into()],
+        );
+        let created_by: Option<serde_json::Value> = self.db
+            .query_one(user_sql)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .and_then(|row| row.try_get_by_index::<serde_json::Value>(0).ok());
 
-        let assignments_rows: Vec<serde_json::Value> = sqlx::query_scalar(
+        // Fetch assignments with user details
+        let assignments_sql = Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
             r#"
             SELECT row_to_json(r) FROM (
                 SELECT ta.id, ta.user_id, ta.is_primary, ta.assigned_at,
@@ -122,11 +98,17 @@ impl TicketService {
                 WHERE ta.ticket_id = $1
             ) r
             "#,
-        )
-        .bind(&ticket.id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            [ticket.id.clone().into()],
+        );
+        let assignment_rows = self.db
+            .query_all(assignments_sql)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+
+        let assignments: Vec<serde_json::Value> = assignment_rows
+            .iter()
+            .filter_map(|row| row.try_get_by_index::<serde_json::Value>(0).ok())
+            .collect();
 
         Ok(TicketWithDetails {
             id: ticket.id,
@@ -144,8 +126,78 @@ impl TicketService {
             scheduled_for: ticket.scheduled_for,
             company,
             created_by,
-            assignments: assignments_rows,
+            assignments,
         })
+    }
+
+    pub async fn find_all(
+        &self,
+        revenda_id: Option<&str>,
+        company_id: Option<&str>,
+        status: Option<&str>,
+        priority: Option<&str>,
+        assigned_to_user_id: Option<&str>,
+    ) -> Result<Vec<TicketWithDetails>, AppError> {
+        let mut query = tickets_entity::Entity::find();
+
+        if let Some(rid) = revenda_id {
+            query = query.filter(tickets_entity::Column::RevendaId.eq(rid));
+        }
+        if let Some(cid) = company_id {
+            query = query.filter(tickets_entity::Column::CompanyId.eq(cid));
+        }
+        if let Some(s) = status {
+            let ts = Self::status_from_str(s);
+            query = query.filter(tickets_entity::Column::Status.eq(ts));
+        }
+        if let Some(p) = priority {
+            let tp = Self::priority_from_str(p);
+            query = query.filter(tickets_entity::Column::Priority.eq(tp));
+        }
+
+        // Filter by assigned user via subquery using raw statement
+        let tickets = if let Some(uid) = assigned_to_user_id {
+            let sql = Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                r#"
+                SELECT id, revenda_id, company_id, title, description,
+                       status, priority, category, created_by_id, created_at, updated_at, closed_at, scheduled_for
+                FROM tickets
+                WHERE id IN (SELECT ticket_id FROM ticket_assignments WHERE user_id = $1)
+                ORDER BY created_at DESC
+                "#,
+                [uid.into()],
+            );
+            tickets_entity::Entity::find()
+                .from_raw_sql(sql)
+                .all(&self.db)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+        } else {
+            query
+                .order_by_desc(tickets_entity::Column::CreatedAt)
+                .all(&self.db)
+                .await
+                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+        };
+
+        let mut result = Vec::new();
+        for ticket in tickets {
+            let t = Self::model_to_ticket(ticket);
+            result.push(self.enrich_ticket(t).await?);
+        }
+        Ok(result)
+    }
+
+    pub async fn find_by_id(&self, id: &str) -> Result<TicketWithDetails, AppError> {
+        let model = tickets_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("Ticket not found"))?;
+
+        let ticket = Self::model_to_ticket(model);
+        self.enrich_ticket(ticket).await
     }
 
     pub async fn create(
@@ -154,8 +206,12 @@ impl TicketService {
         revenda_id: &str,
         created_by_id: &str,
     ) -> Result<TicketWithDetails, AppError> {
-        let status = request.status.unwrap_or_else(|| "AGUARDANDO_ATENDIMENTO".to_string());
-        let priority = request.priority.unwrap_or_else(|| "MEDIA".to_string());
+        let status = Self::status_from_str(
+            request.status.as_deref().unwrap_or("AGUARDANDO_ATENDIMENTO"),
+        );
+        let priority = Self::priority_from_str(
+            request.priority.as_deref().unwrap_or("MEDIA"),
+        );
 
         let scheduled_for = request.scheduled_for.as_deref()
             .map(|s| s.parse::<chrono::NaiveDateTime>())
@@ -163,207 +219,198 @@ impl TicketService {
             .map_err(|_| AppError::bad_request("Invalid scheduled_for date"))?;
 
         let ticket_id = Uuid::new_v4().to_string();
+        let now = Utc::now().naive_utc();
 
-        let ticket = sqlx::query_as::<_, Ticket>(
-            r#"
-            INSERT INTO tickets (id, revenda_id, company_id, title, description, status, priority, category, created_by_id, scheduled_for)
-            VALUES ($1, $2, $3, $4, $5, $6::"TicketStatus", $7::"TicketPriority", $8, $9, $10)
-            RETURNING id, revenda_id, company_id, title, description,
-                      status::TEXT as status, priority::TEXT as priority, category,
-                      created_by_id, created_at, updated_at, closed_at, scheduled_for
-            "#,
-        )
-        .bind(&ticket_id)
-        .bind(revenda_id)
-        .bind(&request.company_id)
-        .bind(&request.title)
-        .bind(&request.description)
-        .bind(&status)
-        .bind(&priority)
-        .bind(&request.category)
-        .bind(created_by_id)
-        .bind(scheduled_for)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let model = tickets_entity::ActiveModel {
+            id: Set(ticket_id.clone()),
+            revenda_id: Set(revenda_id.to_string()),
+            company_id: Set(request.company_id.clone()),
+            title: Set(request.title.clone()),
+            description: Set(request.description.clone()),
+            status: Set(status),
+            priority: Set(priority),
+            category: Set(request.category.clone()),
+            created_by_id: Set(created_by_id.to_string()),
+            created_at: Set(now),
+            updated_at: Set(now),
+            closed_at: Set(None),
+            scheduled_for: Set(scheduled_for),
+        };
 
+        let result = model.insert(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+
+        // Handle assignments
         if let Some(user_ids) = &request.assigned_user_ids {
             let primary_id = request.primary_assignee_id.as_deref()
-                .or(user_ids.first().map(|s| s.as_str()));
+                .or_else(|| user_ids.first().map(|s| s.as_str()));
 
             for uid in user_ids {
                 let is_primary = Some(uid.as_str()) == primary_id;
-                let assignment_id = Uuid::new_v4().to_string();
-                sqlx::query(
+                let assignment = ticket_assignments_entity::ActiveModel {
+                    id: Set(Uuid::new_v4().to_string()),
+                    ticket_id: Set(result.id.clone()),
+                    user_id: Set(uid.clone()),
+                    is_primary: Set(is_primary),
+                    assigned_at: Set(now),
+                };
+                // Use upsert via raw SQL to handle ON CONFLICT
+                let sql = Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
                     r#"
-                    INSERT INTO ticket_assignments (id, ticket_id, user_id, is_primary)
-                    VALUES ($1, $2, $3, $4)
+                    INSERT INTO ticket_assignments (id, ticket_id, user_id, is_primary, assigned_at)
+                    VALUES ($1, $2, $3, $4, $5)
                     ON CONFLICT (ticket_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
                     "#,
-                )
-                .bind(&assignment_id)
-                .bind(&ticket.id)
-                .bind(uid)
-                .bind(is_primary)
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+                    [
+                        assignment.id.unwrap().into(),
+                        assignment.ticket_id.unwrap().into(),
+                        assignment.user_id.unwrap().into(),
+                        assignment.is_primary.unwrap().into(),
+                        assignment.assigned_at.unwrap().into(),
+                    ],
+                );
+                self.db.execute(sql).await
+                    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
             }
         }
 
-        self.find_by_id(&ticket.id.to_string()).await
+        let ticket = Self::model_to_ticket(result);
+        self.enrich_ticket(ticket).await
     }
 
     pub async fn update(&self, id: &str, request: UpdateTicketRequest) -> Result<TicketWithDetails, AppError> {
-        let existing = sqlx::query_as::<_, Ticket>(
-            r#"SELECT id, revenda_id, company_id, title, description, status::TEXT as status, priority::TEXT as priority, category, created_by_id, created_at, updated_at, closed_at, scheduled_for FROM tickets WHERE id = $1"#,
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Ticket not found"))?;
+        let model = tickets_entity::Entity::find_by_id(id)
+            .one(&self.db)
+            .await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::not_found("Ticket not found"))?;
 
-        let title = request.title.unwrap_or(existing.title);
-        let description = request.description.unwrap_or(existing.description);
-        let status = request.status.unwrap_or(existing.status);
-        let priority = request.priority.unwrap_or(existing.priority);
-        let category = request.category.or(existing.category);
+        let mut active: tickets_entity::ActiveModel = model.clone().into();
+        let now = Utc::now().naive_utc();
 
-        let closed_at = if status == "CONCLUIDO" || status == "CANCELADO" {
-            Some(chrono::Utc::now().naive_utc())
-        } else {
-            existing.closed_at
-        };
+        if let Some(title) = request.title {
+            active.title = Set(title);
+        }
+        if let Some(description) = request.description {
+            active.description = Set(description);
+        }
+        if let Some(s) = request.status {
+            let closed = s == "CONCLUIDO" || s == "CANCELADO";
+            active.status = Set(Self::status_from_str(&s));
+            if closed {
+                active.closed_at = Set(Some(now));
+            }
+        }
+        if let Some(p) = request.priority {
+            active.priority = Set(Self::priority_from_str(&p));
+        }
+        if let Some(cat) = request.category {
+            active.category = Set(Some(cat));
+        }
+        if let Some(sf) = request.scheduled_for {
+            let parsed = sf.parse::<chrono::NaiveDateTime>()
+                .map_err(|_| AppError::bad_request("Invalid scheduled_for date"))?;
+            active.scheduled_for = Set(Some(parsed));
+        }
+        active.updated_at = Set(now);
 
-        let scheduled_for = request.scheduled_for.as_deref()
-            .map(|s| s.parse::<chrono::NaiveDateTime>())
-            .transpose()
-            .map_err(|_| AppError::bad_request("Invalid scheduled_for date"))?
-            .or(existing.scheduled_for);
+        let result = active.update(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-        let ticket = sqlx::query_as::<_, Ticket>(
-            r#"
-            UPDATE tickets
-            SET title = $2, description = $3, status = $4::"TicketStatus", priority = $5::"TicketPriority",
-                category = $6, closed_at = $7, scheduled_for = $8, updated_at = NOW()
-            WHERE id = $1
-            RETURNING id, revenda_id, company_id, title, description,
-                      status::TEXT as status, priority::TEXT as priority, category,
-                      created_by_id, created_at, updated_at, closed_at, scheduled_for
-            "#,
-        )
-        .bind(id)
-        .bind(&title)
-        .bind(&description)
-        .bind(&status)
-        .bind(&priority)
-        .bind(&category)
-        .bind(closed_at)
-        .bind(scheduled_for)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Ticket not found"))?;
-
-        self.find_by_id(&ticket.id.to_string()).await
+        let ticket = Self::model_to_ticket(result);
+        self.enrich_ticket(ticket).await
     }
 
     pub async fn delete(&self, id: &str) -> Result<(), AppError> {
-        let result = sqlx::query(r#"DELETE FROM tickets WHERE id = $1"#)
-            .bind(id)
-            .execute(&self.pool)
+        let result = tickets_entity::Entity::delete_by_id(id)
+            .exec(&self.db)
             .await
             .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
 
-        if result.rows_affected() == 0 {
+        if result.rows_affected == 0 {
             return Err(AppError::not_found("Ticket not found"));
         }
-
         Ok(())
     }
 
     pub async fn get_stats(&self, revenda_id: Option<&str>) -> Result<TicketStats, AppError> {
-        #[derive(sqlx::FromRow)]
-        struct StatsRow {
-            total: i64,
-            aguardando: i64,
-            agendado: i64,
-            em_execucao: i64,
-            implantacao: i64,
-            concluido: i64,
-            abertos: i64,
-        }
-
-        let row = if let Some(rid) = revenda_id {
-            sqlx::query_as::<_, StatsRow>(
+        let (sql, values) = if let Some(rid) = revenda_id {
+            (
                 r#"
                 SELECT
                     COUNT(*)::BIGINT as total,
-                    COUNT(*) FILTER (WHERE status = 'AGUARDANDO_ATENDIMENTO')::BIGINT as aguardando,
-                    COUNT(*) FILTER (WHERE status = 'AGENDADO')::BIGINT as agendado,
-                    COUNT(*) FILTER (WHERE status = 'EM_EXECUCAO')::BIGINT as em_execucao,
-                    COUNT(*) FILTER (WHERE status = 'IMPLANTACAO')::BIGINT as implantacao,
-                    COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::BIGINT as concluido,
-                    COUNT(*) FILTER (WHERE status NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT as abertos
+                    COUNT(*) FILTER (WHERE status::TEXT = 'AGUARDANDO_ATENDIMENTO')::BIGINT as aguardando,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'AGENDADO')::BIGINT as agendado,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'EM_EXECUCAO')::BIGINT as em_execucao,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'IMPLANTACAO')::BIGINT as implantacao,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'CONCLUIDO')::BIGINT as concluido,
+                    COUNT(*) FILTER (WHERE status::TEXT NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT as abertos
                 FROM tickets
                 WHERE revenda_id = $1
                 "#,
+                vec![rid.into()],
             )
-            .bind(rid)
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         } else {
-            sqlx::query_as::<_, StatsRow>(
+            (
                 r#"
                 SELECT
                     COUNT(*)::BIGINT as total,
-                    COUNT(*) FILTER (WHERE status = 'AGUARDANDO_ATENDIMENTO')::BIGINT as aguardando,
-                    COUNT(*) FILTER (WHERE status = 'AGENDADO')::BIGINT as agendado,
-                    COUNT(*) FILTER (WHERE status = 'EM_EXECUCAO')::BIGINT as em_execucao,
-                    COUNT(*) FILTER (WHERE status = 'IMPLANTACAO')::BIGINT as implantacao,
-                    COUNT(*) FILTER (WHERE status = 'CONCLUIDO')::BIGINT as concluido,
-                    COUNT(*) FILTER (WHERE status NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT as abertos
+                    COUNT(*) FILTER (WHERE status::TEXT = 'AGUARDANDO_ATENDIMENTO')::BIGINT as aguardando,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'AGENDADO')::BIGINT as agendado,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'EM_EXECUCAO')::BIGINT as em_execucao,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'IMPLANTACAO')::BIGINT as implantacao,
+                    COUNT(*) FILTER (WHERE status::TEXT = 'CONCLUIDO')::BIGINT as concluido,
+                    COUNT(*) FILTER (WHERE status::TEXT NOT IN ('CONCLUIDO', 'CANCELADO'))::BIGINT as abertos
                 FROM tickets
                 "#,
+                vec![],
             )
-            .fetch_one(&self.pool)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
         };
 
+        let stmt = Statement::from_sql_and_values(DatabaseBackend::Postgres, sql, values);
+        let row = self.db.query_one(stmt).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
+            .ok_or_else(|| AppError::internal("No stats row returned".to_string()))?;
+
         Ok(TicketStats {
-            total: row.total,
-            aguardando: row.aguardando,
-            agendado: row.agendado,
-            em_execucao: row.em_execucao,
-            implantacao: row.implantacao,
-            concluido: row.concluido,
-            abertos: row.abertos,
+            total: row.try_get_by_index::<i64>(0).unwrap_or(0),
+            aguardando: row.try_get_by_index::<i64>(1).unwrap_or(0),
+            agendado: row.try_get_by_index::<i64>(2).unwrap_or(0),
+            em_execucao: row.try_get_by_index::<i64>(3).unwrap_or(0),
+            implantacao: row.try_get_by_index::<i64>(4).unwrap_or(0),
+            concluido: row.try_get_by_index::<i64>(5).unwrap_or(0),
+            abertos: row.try_get_by_index::<i64>(6).unwrap_or(0),
         })
     }
 
     pub async fn add_action(&self, ticket_id: &str, user_id: &str, content: &str) -> Result<TicketAction, AppError> {
-        let action = sqlx::query_as::<_, TicketAction>(
-            r#"
-            INSERT INTO ticket_actions (ticket_id, user_id, content)
-            VALUES ($1, $2, $3)
-            RETURNING id, ticket_id, user_id, content, created_at
-            "#,
-        )
-        .bind(ticket_id)
-        .bind(user_id)
-        .bind(content)
-        .fetch_one(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+        let action_id = Uuid::new_v4().to_string();
+        let now = Utc::now().naive_utc();
 
-        Ok(action)
+        let model = ticket_actions_entity::ActiveModel {
+            id: Set(action_id),
+            ticket_id: Set(ticket_id.to_string()),
+            user_id: Set(user_id.to_string()),
+            content: Set(content.to_string()),
+            created_at: Set(now),
+        };
+
+        let result = model.insert(&self.db).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+
+        Ok(TicketAction {
+            id: result.id,
+            ticket_id: result.ticket_id,
+            user_id: result.user_id,
+            content: result.content,
+            created_at: result.created_at,
+        })
     }
 
     pub async fn get_actions(&self, ticket_id: &str) -> Result<Vec<serde_json::Value>, AppError> {
-        let rows: Vec<serde_json::Value> = sqlx::query_scalar(
+        let sql = Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
             r#"
             SELECT row_to_json(r) FROM (
                 SELECT ta.id, ta.ticket_id, ta.user_id, ta.content, ta.created_at,
@@ -374,12 +421,14 @@ impl TicketService {
                 ORDER BY ta.created_at ASC
             ) r
             "#,
-        )
-        .bind(ticket_id)
-        .fetch_all(&self.pool)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+            [ticket_id.into()],
+        );
 
-        Ok(rows)
+        let rows = self.db.query_all(sql).await
+            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
+
+        Ok(rows.iter()
+            .filter_map(|row| row.try_get_by_index::<serde_json::Value>(0).ok())
+            .collect())
     }
 }
