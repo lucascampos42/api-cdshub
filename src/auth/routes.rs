@@ -1,40 +1,15 @@
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
-use serde::Deserialize;
 use serde_json::{json, Value};
 
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
-
-use crate::auth::jwt::{create_temp_2fa_token, create_token_pair, decode_token};
 use crate::auth::middleware::AuthUser;
-use crate::auth::sessions::{SessionService, SessionResponse};
-use crate::common::password::verify_password;
-use crate::common::types::UserType;
-use crate::common::validation;
-use crate::entities::{companies, user_companies};
+use crate::auth::model::{
+    ChangePasswordRequest, LoginRequest, SwitchCompanyRequest, TwoFAVerifyRequest, Verify2FARequest,
+};
+use crate::auth::service::AuthService;
 use crate::errors::AppError;
-use crate::users::service::UserService;
 use crate::AppState;
-
-#[derive(Deserialize, utoipa::ToSchema)]
-pub struct LoginRequest {
-    /// Email, username, or CPF
-    pub identifier: String,
-    pub password: String,
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-pub struct Verify2FARequest {
-    pub temp_token: String,
-    /// 6-digit TOTP code
-    pub code: String,
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-pub struct SwitchCompanyRequest {
-    pub company_id: String,
-}
 
 #[utoipa::path(
     post,
@@ -51,56 +26,9 @@ pub async fn login(
     State(state): State<AppState>,
     Json(request): Json<LoginRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    if request.identifier.trim().is_empty() {
-        return Err(AppError::bad_request("Identifier cannot be empty"));
-    }
-    if request.password.is_empty() {
-        return Err(AppError::bad_request("Password cannot be empty"));
-    }
-
-    let user_service = UserService::new(state.db.clone());
-    let user = match user_service.find_by_identifier(&request.identifier).await {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::error!("Login find user error: {:?}", e);
-            return Err(e);
-        }
-    };
-
-    if !user.active {
-        return Err(AppError::unauthorized("User is inactive"));
-    }
-
-    let valid = match verify_password(&request.password, &user.password_hash) {
-        Ok(v) => v,
-        Err(e) => {
-            tracing::error!("Login verify password error: {:?}", e);
-            return Err(AppError::internal(format!("Password verification error: {}", e)));
-        }
-    };
-
-    if !valid {
-        return Err(AppError::unauthorized("Invalid credentials"));
-    }
-
-    if user.is_two_factor_enabled {
-        let temp_token = create_temp_2fa_token(
-            &user.id.to_string(),
-            &state.config.jwt_secret,
-        )
-        .map_err(|e| AppError::internal(format!("Failed to create temp token: {}", e)))?;
-
-        return Ok((
-            StatusCode::OK,
-            Json(json!({
-                "requires2FA": true,
-                "tempToken": temp_token,
-            })),
-        ));
-    }
-
-    let response = generate_auth_response(&state, &user).await?;
-    Ok((StatusCode::OK, Json(response)))
+    let service = AuthService::new(&state);
+    let (status, body) = service.login(&request.identifier, &request.password).await?;
+    Ok((status, Json(body)))
 }
 
 #[utoipa::path(
@@ -117,42 +45,9 @@ pub async fn verify_2fa(
     State(state): State<AppState>,
     Json(request): Json<Verify2FARequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let claims = decode_token(&request.temp_token, &state.config.jwt_secret)
-        .map_err(|_| AppError::unauthorized("Invalid or expired temp token"))?;
-
-    if claims.token_type != "2fa_pending" {
-        return Err(AppError::unauthorized("Invalid token type"));
-    }
-
-    let user_service = UserService::new(state.db.clone());
-    let user = user_service.find_by_id(&claims.sub).await?;
-
-    let secret = user
-        .two_factor_secret
-        .as_deref()
-        .ok_or_else(|| AppError::bad_request("2FA not configured"))?;
-
-    let totp = totp_rs::TOTP::new(
-        totp_rs::Algorithm::SHA1,
-        6,
-        1,
-        30,
-        secret.as_bytes().to_vec(),
-        Some("CDS Hub".to_string()),
-        user.email.clone(),
-    )
-    .map_err(|e| AppError::internal(format!("TOTP error: {}", e)))?;
-
-    let is_valid = totp
-        .check_current(&request.code)
-        .map_err(|e| AppError::internal(format!("TOTP verification error: {}", e)))?;
-
-    if !is_valid {
-        return Err(AppError::unauthorized("Invalid 2FA code"));
-    }
-
-    let response = generate_auth_response(&state, &user).await?;
-    Ok((StatusCode::OK, Json(response)))
+    let service = AuthService::new(&state);
+    let (status, body) = service.verify_2fa(&request.temp_token, &request.code).await?;
+    Ok((status, Json(body)))
 }
 
 #[utoipa::path(
@@ -169,36 +64,9 @@ pub async fn refresh_token(
     request: axum::http::Request<axum::body::Body>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
     let refresh_token = extract_refresh_token(&request)?;
-
-    let claims = decode_token(&refresh_token, &state.config.refresh_token_secret)
-        .map_err(|_| AppError::unauthorized("Invalid refresh token"))?;
-
-    if claims.token_type != "refresh" {
-        return Err(AppError::unauthorized("Invalid token type"));
-    }
-
-    let user_service = UserService::new(state.db.clone());
-    let session_service = SessionService::new(state.db.clone());
-
-    let user = user_service.find_by_id(&claims.sub).await?;
-
-    let session_valid = session_service
-        .is_session_valid(&user.id.to_string(), &claims.session_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Session check error: {}", e)))?;
-
-    if !session_valid {
-        return Err(AppError::unauthorized("Session expired or revoked"));
-    }
-
-    let response = generate_auth_response_with_session(
-        &state,
-        &user,
-        Some(&claims.session_id),
-    )
-    .await?;
-
-    Ok((StatusCode::OK, Json(response)))
+    let service = AuthService::new(&state);
+    let (status, body) = service.refresh_token(&refresh_token).await?;
+    Ok((status, Json(body)))
 }
 
 #[utoipa::path(
@@ -214,18 +82,8 @@ pub async fn logout(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<StatusCode, AppError> {
-    let session_service = SessionService::new(state.db.clone());
-    let user_service = UserService::new(state.db.clone());
-
-    session_service
-        .revoke_session(&auth.user_id, &auth.session_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Session revoke error: {}", e)))?;
-
-    user_service
-        .update_refresh_token(&auth.user_id, None)
-        .await?;
-
+    let service = AuthService::new(&state);
+    service.logout(&auth).await?;
     Ok(StatusCode::OK)
 }
 
@@ -244,100 +102,9 @@ pub async fn switch_company(
     auth: AuthUser,
     Json(request): Json<SwitchCompanyRequest>,
 ) -> Result<(StatusCode, Json<Value>), AppError> {
-    let user_service = UserService::new(state.db.clone());
-
-    let user_type: UserType = auth.user_type.parse()
-        .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
-
-    // Validate access based on user type
-    match user_type {
-        UserType::CodesdevsSuperadmin | UserType::CodesdevsSuporte => {
-            // Can access any company
-        }
-        UserType::RevendaAdmin | UserType::RevendaSuporte | UserType::RevendaGerente | UserType::RevendaContador => {
-            if let Some(revenda_id) = &auth.revenda_id {
-                let belongs = companies::Entity::find()
-                    .filter(companies::Column::Id.eq(&request.company_id))
-                    .filter(companies::Column::RevendaId.eq(revenda_id))
-                    .filter(companies::Column::Active.eq(true))
-                    .count(&state.db)
-                    .await
-                    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-                if belongs == 0 {
-                    return Err(AppError::forbidden("Access denied to this company"));
-                }
-            } else {
-                return Err(AppError::forbidden("No revenda associated"));
-            }
-        }
-        _ => {
-            let has_access = user_companies::Entity::find()
-                .filter(user_companies::Column::UserId.eq(&auth.user_id))
-                .filter(user_companies::Column::CompanyId.eq(&request.company_id))
-                .count(&state.db)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-            if has_access == 0 {
-                return Err(AppError::forbidden("Access denied to this company"));
-            }
-        }
-    }
-
-    // Update current company
-    user_service
-        .update_current_company(&auth.user_id, Some(&request.company_id))
-        .await?;
-
-    // Get company info for response
-    let company = companies::Entity::find_by_id(&request.company_id)
-        .one(&state.db)
-        .await
-        .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        .ok_or_else(|| AppError::not_found("Company not found"))?;
-
-    // Generate new tokens with updated company context
-    let session_service = SessionService::new(state.db.clone());
-    let session = session_service
-        .create_session(
-            &auth.user_id,
-            None,
-            None,
-            state.config.refresh_token_expiration_days,
-        )
-        .await
-        .map_err(|e| AppError::internal(format!("Session creation error: {}", e)))?;
-
-    let tokens = create_token_pair(
-        &auth.user_id,
-        &auth.email,
-        &user_type,
-        &auth.role,
-        auth.revenda_id.as_deref(),
-        Some(&request.company_id),
-        Some(company.subdomain.as_str()),
-        auth.company_role.as_deref(),
-        &session.id.to_string(),
-        &state.config.jwt_secret,
-        &state.config.refresh_token_secret,
-        state.config.jwt_expiration_hours,
-        state.config.refresh_token_expiration_days,
-    )
-    .map_err(|e| AppError::internal(format!("Failed to create tokens: {}", e)))?;
-
-    Ok((
-        StatusCode::OK,
-        Json(json!({
-            "access_token": tokens.access_token,
-            "refresh_token": tokens.refresh_token,
-            "currentCompany": {
-                "id": company.id,
-                "name": company.name,
-                "subdomain": company.subdomain,
-            },
-        })),
-    ))
+    let service = AuthService::new(&state);
+    let (status, body) = service.switch_company(&auth, &request.company_id).await?;
+    Ok((status, Json(body)))
 }
 
 #[utoipa::path(
@@ -353,85 +120,9 @@ pub async fn companies_context(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let user_type: UserType = auth.user_type.parse()
-        .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
-
-    let companies = match user_type {
-        UserType::CodesdevsSuperadmin | UserType::CodesdevsSuporte => {
-            companies::Entity::find()
-                .filter(companies::Column::Active.eq(true))
-                .order_by(companies::Column::Name, sea_orm::Order::Asc)
-                .all(&state.db)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        }
-        UserType::RevendaAdmin | UserType::RevendaSuporte | UserType::RevendaGerente | UserType::RevendaContador => {
-            if let Some(revenda_id) = &auth.revenda_id {
-                companies::Entity::find()
-                    .filter(companies::Column::RevendaId.eq(revenda_id))
-                    .filter(companies::Column::Active.eq(true))
-                    .order_by(companies::Column::Name, sea_orm::Order::Asc)
-                    .all(&state.db)
-                    .await
-                    .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-            } else {
-                vec![]
-            }
-        }
-        _ => {
-            companies::Entity::find()
-                .inner_join(user_companies::Entity)
-                .filter(user_companies::Column::UserId.eq(&auth.user_id))
-                .filter(companies::Column::Active.eq(true))
-                .order_by(companies::Column::Name, sea_orm::Order::Asc)
-                .all(&state.db)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-        }
-    };
-
-    let companies_json: Vec<Value> = companies
-        .iter()
-        .map(|c| {
-            json!({
-                "id": c.id,
-                "name": c.name,
-                "subdomain": c.subdomain,
-                "sgbmSchema": c.schema_name,
-                "document": c.document,
-                "revendaId": c.revenda_id,
-                "parentCompanyId": c.parent_company_id,
-                "active": c.active,
-            })
-        })
-        .collect();
-
-    let current_company_id: Option<String> = auth.company_id.clone();
-
-    let current_company = if let Some(ref company_id) = current_company_id {
-        companies.iter().find(|c| c.id == *company_id).map(|c| {
-            json!({
-                "id": c.id,
-                "name": c.name,
-                "subdomain": c.subdomain,
-                "sgbmSchema": c.schema_name,
-            })
-        })
-    } else {
-        companies.first().map(|c| {
-            json!({
-                "id": c.id,
-                "name": c.name,
-                "subdomain": c.subdomain,
-                "sgbmSchema": c.schema_name,
-            })
-        })
-    };
-
-    Ok(Json(json!({
-        "companies": companies_json,
-        "currentCompany": current_company,
-    })))
+    let service = AuthService::new(&state);
+    let body = service.companies_context(&auth).await?;
+    Ok(Json(body))
 }
 
 #[utoipa::path(
@@ -447,13 +138,9 @@ pub async fn list_sessions(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let session_service = SessionService::new(state.db.clone());
-    let sessions = session_service.list_sessions(&auth.user_id).await
-        .map_err(|e| AppError::internal(format!("Session list error: {}", e)))?;
-
-    Ok(Json(json!({
-        "sessions": sessions,
-    })))
+    let service = AuthService::new(&state);
+    let sessions = service.list_sessions(&auth.user_id).await?;
+    Ok(Json(json!({ "sessions": sessions })))
 }
 
 #[utoipa::path(
@@ -473,12 +160,8 @@ pub async fn revoke_session(
     auth: AuthUser,
     Path(session_id): Path<String>,
 ) -> Result<StatusCode, AppError> {
-    let session_service = SessionService::new(state.db.clone());
-    session_service
-        .revoke_session(&auth.user_id, &session_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Session revoke error: {}", e)))?;
-
+    let service = AuthService::new(&state);
+    service.revoke_session(&auth.user_id, &session_id).await?;
     Ok(StatusCode::OK)
 }
 
@@ -495,24 +178,9 @@ pub async fn revoke_all_sessions(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<StatusCode, AppError> {
-    let session_service = SessionService::new(state.db.clone());
-    session_service
-        .revoke_all_sessions(&auth.user_id)
-        .await
-        .map_err(|e| AppError::internal(format!("Session revoke error: {}", e)))?;
-
+    let service = AuthService::new(&state);
+    service.revoke_all_sessions(&auth.user_id).await?;
     Ok(StatusCode::OK)
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-pub struct ChangePasswordRequest {
-    pub old_password: String,
-    pub new_password: String,
-}
-
-#[derive(Deserialize, utoipa::ToSchema)]
-pub struct TwoFAVerifyRequest {
-    pub code: String,
 }
 
 #[utoipa::path(
@@ -528,13 +196,9 @@ pub async fn generate_2fa(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let user_service = UserService::new(state.db.clone());
-    let (secret, qr_code_data_url) = user_service.generate_2fa_secret(&auth.user_id).await?;
-
-    Ok(Json(json!({
-        "secret": secret,
-        "qrCodeDataUrl": qr_code_data_url,
-    })))
+    let service = AuthService::new(&state);
+    let body = service.generate_2fa(&auth.user_id).await?;
+    Ok(Json(body))
 }
 
 #[utoipa::path(
@@ -552,12 +216,9 @@ pub async fn turn_on_2fa(
     auth: AuthUser,
     Json(request): Json<TwoFAVerifyRequest>,
 ) -> Result<Json<Value>, AppError> {
-    let user_service = UserService::new(state.db.clone());
-    user_service.turn_on_2fa(&auth.user_id, &request.code).await?;
-
-    Ok(Json(json!({
-        "message": "2FA activated successfully",
-    })))
+    let service = AuthService::new(&state);
+    let body = service.turn_on_2fa(&auth.user_id, &request.code).await?;
+    Ok(Json(body))
 }
 
 #[utoipa::path(
@@ -573,12 +234,9 @@ pub async fn turn_off_2fa(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<Json<Value>, AppError> {
-    let user_service = UserService::new(state.db.clone());
-    user_service.turn_off_2fa(&auth.user_id).await?;
-
-    Ok(Json(json!({
-        "message": "2FA deactivated successfully",
-    })))
+    let service = AuthService::new(&state);
+    let body = service.turn_off_2fa(&auth.user_id).await?;
+    Ok(Json(body))
 }
 
 #[utoipa::path(
@@ -597,123 +255,11 @@ pub async fn change_password(
     auth: AuthUser,
     Json(request): Json<ChangePasswordRequest>,
 ) -> Result<Json<Value>, AppError> {
-    if request.old_password.is_empty() {
-        return Err(AppError::bad_request("Current password cannot be empty"));
-    }
-    validation::validate_password(&request.new_password)?;
-
-    let user_service = UserService::new(state.db.clone());
-    user_service
+    let service = AuthService::new(&state);
+    let body = service
         .change_password(&auth.user_id, &request.old_password, &request.new_password)
         .await?;
-
-    Ok(Json(json!({
-        "message": "Password changed successfully",
-    })))
-}
-
-// Helper functions
-
-async fn generate_auth_response(
-    state: &AppState,
-    user: &crate::users::model::User,
-) -> Result<Value, AppError> {
-    generate_auth_response_with_session(state, user, None).await
-}
-
-async fn generate_auth_response_with_session(
-    state: &AppState,
-    user: &crate::users::model::User,
-    existing_session_id: Option<&str>,
-) -> Result<Value, AppError> {
-    let session_service = SessionService::new(state.db.clone());
-
-    let session: SessionResponse = if let Some(session_id) = existing_session_id {
-        // Reuse existing session info via SeaORM
-        use sea_orm::{EntityTrait, QueryFilter, ColumnTrait};
-        use crate::entities::sessions as sessions_entity;
-
-        let model = sessions_entity::Entity::find()
-            .filter(sessions_entity::Column::Id.eq(session_id))
-            .filter(sessions_entity::Column::UserId.eq(user.id.to_string()))
-            .one(&state.db)
-            .await
-            .map_err(|e| AppError::internal(format!("Database error: {}", e)))?
-            .ok_or_else(|| AppError::not_found("Session not found"))?;
-
-        SessionResponse::from(model)
-    } else {
-        session_service
-            .create_session(
-                &user.id.to_string(),
-                None,
-                None,
-                state.config.refresh_token_expiration_days,
-            )
-            .await
-            .map_err(|e| AppError::internal(format!("Session creation error: {}", e)))?
-    };
-
-    // Get user's default company for CLIENTE_* types
-    let company_id = match user.user_type {
-        UserType::ClienteAdmin
-        | UserType::ClienteGerente
-        | UserType::ClienteFuncionario
-        | UserType::ClienteContador => {
-            let default_company = companies::Entity::find()
-                .inner_join(user_companies::Entity)
-                .filter(user_companies::Column::UserId.eq(&user.id))
-                .filter(companies::Column::Active.eq(true))
-                .order_by_desc(user_companies::Column::IsDefault)
-                .one(&state.db)
-                .await
-                .map_err(|e| AppError::internal(format!("Database error: {}", e)))?;
-
-            default_company.map(|c| c.id)
-        }
-        _ => None,
-    };
-
-    let tokens = create_token_pair(
-        &user.id.to_string(),
-        &user.email,
-        &user.user_type,
-        &user.role,
-        user.revenda_id.as_ref().map(|u| u.to_string()).as_deref(),
-        company_id.as_ref().map(|u| u.to_string()).as_deref(),
-        None,
-        Some(&user.role),
-        &session.id.to_string(),
-        &state.config.jwt_secret,
-        &state.config.refresh_token_secret,
-        state.config.jwt_expiration_hours,
-        state.config.refresh_token_expiration_days,
-    )
-    .map_err(|e| AppError::internal(format!("Failed to create tokens: {}", e)))?;
-
-    // Store refresh token hash
-    let refresh_hash = crate::common::password::hash_password(&tokens.refresh_token)
-        .map_err(|e| AppError::internal(format!("Failed to hash refresh token: {}", e)))?;
-
-    let user_service = UserService::new(state.db.clone());
-    user_service
-        .update_refresh_token(&user.id.to_string(), Some(&refresh_hash))
-        .await?;
-
-    Ok(json!({
-        "access_token": tokens.access_token,
-        "refresh_token": tokens.refresh_token,
-        "user": {
-            "id": user.id,
-            "name": user.name,
-            "email": user.email,
-            "role": user.role,
-            "userType": user.user_type.to_string(),
-            "revendaId": user.revenda_id,
-            "mustChangePassword": user.must_change_password,
-            "isTwoFactorEnabled": user.is_two_factor_enabled,
-        },
-    }))
+    Ok(Json(body))
 }
 
 fn extract_refresh_token(request: &axum::http::Request<axum::body::Body>) -> Result<String, AppError> {
