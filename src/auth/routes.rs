@@ -263,6 +263,14 @@ pub async fn change_password(
 }
 
 fn extract_refresh_token(request: &axum::http::Request<axum::body::Body>) -> Result<String, AppError> {
+    if let Some(header_value) = request.headers().get("X-Refresh-Token") {
+        if let Ok(value) = header_value.to_str() {
+            if !value.is_empty() {
+                return Ok(value.to_string());
+            }
+        }
+    }
+
     if let Some(cookie_header) = request.headers().get(axum::http::header::COOKIE) {
         if let Ok(cookie_str) = cookie_header.to_str() {
             for cookie in cookie_str.split(';') {

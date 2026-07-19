@@ -57,36 +57,24 @@ pub fn validate_cpf(cpf: &str) -> Result<(), AppError> {
 pub fn validate_password(password: &str) -> Result<(), AppError> {
     if password.len() < 8 {
         return Err(AppError::bad_request(
-            "Password must be at least 8 characters",
+            "Senha deve ter no mínimo 8 caracteres",
         ));
     }
     if password.len() > 128 {
-        return Err(AppError::bad_request("Password too long (max 128 characters)"));
+        return Err(AppError::bad_request("Senha muito longa (máximo 128 caracteres)"));
     }
 
-    let has_upper = password.chars().any(|c| c.is_ascii_uppercase());
-    let has_lower = password.chars().any(|c| c.is_ascii_lowercase());
+    let has_letter = password.chars().any(|c| c.is_ascii_alphabetic());
     let has_digit = password.chars().any(|c| c.is_ascii_digit());
-    let has_special = password.chars().any(|c| !c.is_alphanumeric() && !c.is_whitespace());
 
-    if !has_upper {
+    if !has_letter {
         return Err(AppError::bad_request(
-            "Password must contain at least one uppercase letter",
-        ));
-    }
-    if !has_lower {
-        return Err(AppError::bad_request(
-            "Password must contain at least one lowercase letter",
+            "Senha deve conter ao menos uma letra",
         ));
     }
     if !has_digit {
         return Err(AppError::bad_request(
-            "Password must contain at least one digit",
-        ));
-    }
-    if !has_special {
-        return Err(AppError::bad_request(
-            "Password must contain at least one special character",
+            "Senha deve conter ao menos um número",
         ));
     }
 

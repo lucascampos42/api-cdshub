@@ -2,7 +2,7 @@ use axum::middleware as axum_middleware;
 use axum::routing::{any, delete, get, patch, post};
 use axum::Router;
 use sea_orm::Database;
-use axum::http::header;
+use axum::http::{header, HeaderName};
 use tower_http::cors::CorsLayer;
 use tower_http::trace::TraceLayer;
 
@@ -68,6 +68,7 @@ async fn main() {
             header::AUTHORIZATION,
             header::COOKIE,
             header::ACCEPT,
+            HeaderName::from_static("x-refresh-token"),
         ])
         .allow_credentials(true);
 
