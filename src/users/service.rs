@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 pub use crate::users::model::{CreateUserRequest, CreateUserResponse, UpdateUserRequest, User, UserResponse};
 
@@ -121,17 +122,19 @@ impl UserService {
 
         let user_type = crate::common::types::UserType::ClienteFuncionario;
         let revenda_uuid = request.revenda_id.clone();
+        let user_id = Uuid::new_v4().to_string();
 
         let user = sqlx::query_as::<_, User>(
             r#"
-            INSERT INTO users (name, email, password_hash, role, revenda_id, user_type, username, cpf, must_change_password)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, true)
+            INSERT INTO users (id, name, email, password_hash, role, revenda_id, user_type, username, cpf, must_change_password)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
             RETURNING id, name, email, password_hash, role, revenda_id, active,
                       created_at, updated_at, must_change_password, cpf, username,
                       current_company_id, user_type, hashed_refresh_token,
                       two_factor_secret, is_two_factor_enabled
             "#,
         )
+        .bind(&user_id)
         .bind(&request.name)
         .bind(&request.email)
         .bind(&password_hash)

@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{CreateRevendaRequest, Revenda, RevendaSystem, UpdateRevendaRequest};
@@ -16,18 +17,21 @@ impl RevendaService {
         let mut tx = self.pool.begin().await
             .map_err(|e| AppError::internal(format!("Transaction error: {}", e)))?;
 
+        let revenda_id = Uuid::new_v4().to_string();
+
         let revenda = sqlx::query_as::<_, Revenda>(
             r#"
             INSERT INTO revendas (
-                name, domain, document, document_type, active,
+                id, name, domain, document, document_type, active,
                 street, number, complement, neighborhood, city, state, zip_code
             )
-            VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9, $10, $11)
+            VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, $12)
             RETURNING id, name, domain, active, created_at, updated_at,
                       city, complement, document, document_type, neighborhood,
                       number, state, street, zip_code
             "#,
         )
+        .bind(&revenda_id)
         .bind(&request.name)
         .bind(&request.domain)
         .bind(&request.document)

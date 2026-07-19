@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::*;
@@ -161,15 +162,18 @@ impl TicketService {
             .transpose()
             .map_err(|_| AppError::bad_request("Invalid scheduled_for date"))?;
 
+        let ticket_id = Uuid::new_v4().to_string();
+
         let ticket = sqlx::query_as::<_, Ticket>(
             r#"
-            INSERT INTO tickets (revenda_id, company_id, title, description, status, priority, category, created_by_id, scheduled_for)
-            VALUES ($1, $2, $3, $4, $5::"TicketStatus", $6::"TicketPriority", $7, $8, $9)
+            INSERT INTO tickets (id, revenda_id, company_id, title, description, status, priority, category, created_by_id, scheduled_for)
+            VALUES ($1, $2, $3, $4, $5, $6::"TicketStatus", $7::"TicketPriority", $8, $9, $10)
             RETURNING id, revenda_id, company_id, title, description,
                       status::TEXT as status, priority::TEXT as priority, category,
                       created_by_id, created_at, updated_at, closed_at, scheduled_for
             "#,
         )
+        .bind(&ticket_id)
         .bind(revenda_id)
         .bind(&request.company_id)
         .bind(&request.title)
@@ -189,13 +193,15 @@ impl TicketService {
 
             for uid in user_ids {
                 let is_primary = Some(uid.as_str()) == primary_id;
+                let assignment_id = Uuid::new_v4().to_string();
                 sqlx::query(
                     r#"
-                    INSERT INTO ticket_assignments (ticket_id, user_id, is_primary)
-                    VALUES ($1, $2, $3)
+                    INSERT INTO ticket_assignments (id, ticket_id, user_id, is_primary)
+                    VALUES ($1, $2, $3, $4)
                     ON CONFLICT (ticket_id, user_id) DO UPDATE SET is_primary = EXCLUDED.is_primary
                     "#,
                 )
+                .bind(&assignment_id)
                 .bind(&ticket.id)
                 .bind(uid)
                 .bind(is_primary)

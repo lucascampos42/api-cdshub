@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{CreateSuggestionRequest, PaginatedSuggestions, PaginationMeta, Suggestion, SuggestionResponse, SuggestionStatus};
@@ -92,13 +93,16 @@ impl SuggestionService {
         let created_by_id = user_id
             .map(|s| s.to_string());
 
+        let suggestion_id = Uuid::new_v4().to_string();
+
         let suggestion = sqlx::query_as::<_, Suggestion>(
             r#"
-            INSERT INTO suggestions (title, description, system, status, votes, created_by_id)
-            VALUES ($1, $2, $3, 'ABERTO', 0, $4)
+            INSERT INTO suggestions (id, title, description, system, status, votes, created_by_id)
+            VALUES ($1, $2, $3, $4, 'ABERTO', 0, $5)
             RETURNING id, title, description, system, status, votes, created_by_id, created_at, updated_at
             "#,
         )
+        .bind(&suggestion_id)
         .bind(&request.title)
         .bind(&request.description)
         .bind(&request.system)

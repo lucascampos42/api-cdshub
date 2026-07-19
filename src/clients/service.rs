@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{Client, CreateClientRequest, UpdateClientRequest};
@@ -13,22 +14,24 @@ impl ClientService {
     }
 
     pub async fn create(&self, request: CreateClientRequest) -> Result<Client, AppError> {
+        let id = Uuid::new_v4().to_string();
         let revenda_id = request.revenda_id.clone();
 
         let client = sqlx::query_as::<_, Client>(
             r#"
             INSERT INTO clients (
-                name, revenda_id, document, document_type, email, phone,
+                id, name, revenda_id, document, document_type, email, phone,
                 legal_rep_name, legal_rep_document, legal_rep_email, legal_rep_phone,
                 zip_code, street, number, complement, neighborhood, city, state
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             RETURNING id, revenda_id, name, document, document_type, email, phone,
                       legal_rep_name, legal_rep_document, legal_rep_email, legal_rep_phone,
                       zip_code, street, number, complement, neighborhood, city, state,
                       created_at, updated_at
             "#,
         )
+        .bind(&id)
         .bind(&request.name)
         .bind(revenda_id)
         .bind(&request.document)
@@ -71,18 +74,20 @@ impl ClientService {
             .to_lowercase();
 
         let company_name = format!("company_{}", generated_subdomain);
+        let company_id = Uuid::new_v4().to_string();
 
         let company = sqlx::query_as::<_, crate::companies::model::Company>(
             r#"
             INSERT INTO companies (
-                client_id, revenda_id, name, subdomain, schema_name,
+                id, client_id, revenda_id, name, subdomain, schema_name,
                 db_connection_string, active, email, phone, document, document_type,
                 zip_code, street, number, complement, neighborhood, city, state
             )
-            VALUES ($1, $2, $3, $4, $5, $6, true, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             RETURNING id
             "#,
         )
+        .bind(&company_id)
         .bind(&client.id)
         .bind(&client.revenda_id)
         .bind(&client.name)

@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use uuid::Uuid;
 
 use crate::errors::AppError;
 use super::model::{Company, CreateCompanyRequest, UpdateCompanyRequest};
@@ -17,22 +18,24 @@ impl CompanyService {
         let client_id = request.client_id.clone();
         let parent_company_id = request.parent_company_id.clone();
         let parent_revenda_id = request.parent_revenda_id.clone();
+        let company_id = Uuid::new_v4().to_string();
 
         let company = sqlx::query_as::<_, Company>(
             r#"
             INSERT INTO companies (
-                name, revenda_id, client_id, subdomain, active, schema_name,
+                id, name, revenda_id, client_id, subdomain, active, schema_name,
                 parent_company_id, parent_revenda_id, db_connection_string,
                 email, phone, document, document_type,
                 zip_code, street, number, complement, neighborhood, city, state
             )
-            VALUES ($1, $2, $3, $4, true, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+            VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20)
             RETURNING id, name, revenda_id, client_id, subdomain, active, created_at, updated_at,
                       schema_name, parent_company_id, parent_revenda_id, db_connection_string,
                       email, phone, document, document_type,
                       zip_code, street, number, complement, neighborhood, city, state
             "#,
         )
+        .bind(&company_id)
         .bind(&request.name)
         .bind(revenda_id)
         .bind(client_id)
