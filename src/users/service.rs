@@ -120,7 +120,11 @@ impl UserService {
         let password_hash = crate::common::password::hash_password(&temporary_password)
             .map_err(|e| crate::errors::AppError::internal(format!("Failed to hash password: {}", e)))?;
 
-        let user_type = crate::common::types::UserType::ClienteFuncionario;
+        let user_type = request.user_type.as_deref()
+            .map(|s| s.parse::<crate::common::types::UserType>())
+            .transpose()
+            .map_err(|_| crate::errors::AppError::bad_request("Invalid user type"))?
+            .unwrap_or(crate::common::types::UserType::ClienteFuncionario);
         let revenda_uuid = request.revenda_id.clone();
         let user_id = Uuid::new_v4().to_string();
 

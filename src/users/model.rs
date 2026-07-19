@@ -38,6 +38,7 @@ pub struct CreateUserRequest {
     pub cpf: Option<String>,
     pub role: String,
     pub revenda_id: Option<String>,
+    pub user_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
