@@ -134,6 +134,7 @@ async fn main() {
         .route("/api/tickets/{ticketId}/actions", post(tickets::routes::add_action))
         .route("/api/client/{*path}", any(proxy::proxy_to_cdsgestor))
         .route("/api/cms/{*path}", any(proxy::proxy_to_cdsgestor))
+        .route("/api/revenda/{*path}", any(proxy::proxy_to_revenda))
         .layer(axum_middleware::from_fn_with_state(state.clone(), auth::middleware::auth_middleware));
 
     let app = Router::new()

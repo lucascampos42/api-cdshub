@@ -95,3 +95,90 @@ impl std::str::FromStr for UserType {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[rstest::rstest]
+    #[case("CODESDEVS_SUPERADMIN", UserType::CodesdevsSuperadmin)]
+    #[case("CODESDEVS_SUPORTE", UserType::CodesdevsSuporte)]
+    #[case("REVENDA_ADMIN", UserType::RevendaAdmin)]
+    #[case("REVENDA_SUPORTE", UserType::RevendaSuporte)]
+    #[case("REVENDA_SUPORTE_AVANCADO", UserType::RevendaSuporteAvancado)]
+    #[case("REVENDA_FINANCEIRO", UserType::RevendaFinanceiro)]
+    #[case("REVENDA_GERENTE", UserType::RevendaGerente)]
+    #[case("REVENDA_CONTADOR", UserType::RevendaContador)]
+    #[case("CLIENTE_ADMIN", UserType::ClienteAdmin)]
+    #[case("CLIENTE_GERENTE", UserType::ClienteGerente)]
+    #[case("CLIENTE_FUNCIONARIO", UserType::ClienteFuncionario)]
+    #[case("CLIENTE_CONTADOR", UserType::ClienteContador)]
+    fn test_from_str_ok(#[case] input: &str, #[case] expected: UserType) {
+        let parsed: UserType = input.parse().unwrap();
+        assert_eq!(parsed, expected);
+    }
+
+    #[test]
+    fn test_from_str_invalid() {
+        let result: Result<UserType, String> = "INVALID_TYPE".parse();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Invalid user type"));
+    }
+
+    #[test]
+    fn test_from_str_empty() {
+        let result: Result<UserType, String> = "".parse();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_from_str_lowercase() {
+        let result: Result<UserType, String> = "codesdevs_superadmin".parse();
+        assert!(result.is_err());
+    }
+
+    #[rstest::rstest]
+    #[case(UserType::CodesdevsSuperadmin, "CODESDEVS_SUPERADMIN")]
+    #[case(UserType::CodesdevsSuporte, "CODESDEVS_SUPORTE")]
+    #[case(UserType::RevendaAdmin, "REVENDA_ADMIN")]
+    #[case(UserType::RevendaSuporte, "REVENDA_SUPORTE")]
+    #[case(UserType::RevendaSuporteAvancado, "REVENDA_SUPORTE_AVANCADO")]
+    #[case(UserType::RevendaFinanceiro, "REVENDA_FINANCEIRO")]
+    #[case(UserType::ClienteAdmin, "CLIENTE_ADMIN")]
+    #[case(UserType::ClienteFuncionario, "CLIENTE_FUNCIONARIO")]
+    fn test_display(#[case] user_type: UserType, #[case] expected: &str) {
+        assert_eq!(user_type.to_string(), expected);
+    }
+
+    #[test]
+    fn test_serde_round_trip() {
+        let variants = [
+            UserType::CodesdevsSuperadmin,
+            UserType::RevendaSuporteAvancado,
+            UserType::ClienteContador,
+        ];
+        for variant in variants {
+            let json = serde_json::to_string(&variant).unwrap();
+            let deserialized: UserType = serde_json::from_str(&json).unwrap();
+            assert_eq!(variant, deserialized);
+        }
+    }
+
+    #[test]
+    fn test_serde_screaming_snake_case() {
+        let json = serde_json::to_value(UserType::CodesdevsSuperadmin).unwrap();
+        assert_eq!(json, serde_json::json!("CODESDEVS_SUPERADMIN"));
+    }
+
+    #[test]
+    fn test_clone_and_partial_eq() {
+        let a = UserType::RevendaAdmin;
+        let b = a.clone();
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn test_user_type_discriminants() {
+        assert_ne!(UserType::ClienteAdmin as u8, UserType::ClienteFuncionario as u8);
+    }
+}

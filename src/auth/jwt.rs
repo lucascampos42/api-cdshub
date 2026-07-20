@@ -178,3 +178,145 @@ pub fn decode_token(token: &str, secret: &str) -> Result<Claims, jsonwebtoken::e
     )?;
     Ok(token_data.claims)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_config() -> (String, String) {
+        ("test_jwt_secret_key_for_unit_tests_123".to_string(), "test_refresh_secret_for_tests_456".to_string())
+    }
+
+    #[tokio::test]
+    async fn test_create_and_decode_access_token() {
+        let (jwt_secret, refresh_secret) = test_config();
+        let user_id = "user-123";
+        let email = "test@example.com";
+        let user_type = UserType::RevendaAdmin;
+        let session_id = "session-456";
+
+        let pair = create_token_pair(
+            user_id, email, &user_type, "admin",
+            None, None, None, None,
+            session_id, &jwt_secret, &refresh_secret, 1, 7,
+        ).unwrap();
+
+        let claims = decode_token(&pair.access_token, &jwt_secret).unwrap();
+        assert_eq!(claims.sub, user_id);
+        assert_eq!(claims.email, email);
+        assert_eq!(claims.user_type, user_type);
+        assert_eq!(claims.session_id, session_id);
+        assert_eq!(claims.token_type, "access");
+        assert!(claims.exp > 0);
+    }
+
+    #[tokio::test]
+    async fn test_create_and_decode_refresh_token() {
+        let (jwt_secret, refresh_secret) = test_config();
+        let user_id = "user-789";
+        let session_id = "session-abc";
+
+        let pair = create_token_pair(
+            user_id, "any@test.com", &UserType::ClienteAdmin, "func",
+            None, None, None, None,
+            session_id, &jwt_secret, &refresh_secret, 1, 7,
+        ).unwrap();
+
+        let claims = decode_token(&pair.refresh_token, &refresh_secret).unwrap();
+        assert_eq!(claims.sub, user_id);
+        assert_eq!(claims.token_type, "refresh");
+        assert_eq!(claims.session_id, session_id);
+    }
+
+    #[tokio::test]
+    async fn test_decode_wrong_secret_fails() {
+        let (jwt_secret, _) = test_config();
+        let pair = create_token_pair(
+            "u1", "e@e.com", &UserType::CodesdevsSuperadmin, "admin",
+            None, None, None, None,
+            "s1", &jwt_secret, "other_secret", 1, 7,
+        ).unwrap();
+
+        let result = decode_token(&pair.access_token, "wrong_secret");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_invalid_token_format_fails() {
+        let result = decode_token("not-a-jwt-token", "secret");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_temp_2fa_token() {
+        let secret = "2fa_test_secret";
+        let token = create_temp_2fa_token("user-2fa", secret).unwrap();
+        let claims = decode_token(&token, secret).unwrap();
+        assert_eq!(claims.token_type, "2fa_pending");
+        assert_eq!(claims.sub, "user-2fa");
+    }
+
+    #[tokio::test]
+    async fn test_access_and_refresh_tokens_are_different() {
+        let (jwt_secret, refresh_secret) = test_config();
+        let pair = create_token_pair(
+            "u1", "e@e.com", &UserType::RevendaSuporte, "support",
+            None, None, None, None,
+            "s1", &jwt_secret, &refresh_secret, 1, 7,
+        ).unwrap();
+        assert_ne!(pair.access_token, pair.refresh_token);
+    }
+
+    #[test]
+    fn test_create_token_pair_with_all_optionals() {
+        let (jwt_secret, refresh_secret) = test_config();
+        let result = create_token_pair(
+            "u1", "e@e.com", &UserType::ClienteFuncionario, "func",
+            Some("rev-1"), Some("comp-1"), Some("schema_x"), Some("owner"),
+            "s1", &jwt_secret, &refresh_secret, 2, 30,
+        );
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_claims_debug() {
+        let claims = Claims {
+            sub: "u1".into(),
+            email: "e@e.com".into(),
+            user_type: UserType::CodesdevsSuperadmin,
+            role: "admin".into(),
+            revenda_id: None,
+            company_id: Some("c1".into()),
+            schema_name: Some("s".into()),
+            company_role: Some("owner".into()),
+            session_id: "sess-1".into(),
+            exp: 9999999999,
+            token_type: "access".into(),
+        };
+        let debug = format!("{:?}", claims);
+        assert!(debug.contains("u1"));
+        assert!(debug.contains("CodesdevsSuperadmin"));
+    }
+
+    #[tokio::test]
+    async fn test_round_trip_preserves_all_optional_fields() {
+        let (jwt_secret, refresh_secret) = test_config();
+        let pair = create_token_pair(
+            "user-id-42", "admin@example.com", &UserType::CodesdevsSuporte, "support",
+            Some("rev-99"), Some("comp-42"), Some("schema_principal"), Some("tech"),
+            "session-xyz", &jwt_secret, &refresh_secret, 24, 30,
+        ).unwrap();
+
+        let claims = decode_token(&pair.access_token, &jwt_secret).unwrap();
+        assert_eq!(claims.sub, "user-id-42");
+        assert_eq!(claims.email, "admin@example.com");
+        assert_eq!(claims.user_type.to_string(), "CODESDEVS_SUPORTE");
+        assert_eq!(claims.role, "support");
+        assert_eq!(claims.revenda_id, Some("rev-99".to_string()));
+        assert_eq!(claims.company_id, Some("comp-42".to_string()));
+        assert_eq!(claims.schema_name, Some("schema_principal".to_string()));
+        assert_eq!(claims.company_role, Some("tech".to_string()));
+        assert_eq!(claims.session_id, "session-xyz");
+        assert_eq!(claims.token_type, "access");
+    }
+}

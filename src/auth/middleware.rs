@@ -79,7 +79,7 @@ pub async fn auth_middleware(
     Ok(next.run(request).await)
 }
 
-fn extract_token(request: &Request) -> Result<String, AppError> {
+pub(crate) fn extract_token(request: &Request) -> Result<String, AppError> {
     if let Some(auth_header) = request.headers().get(header::AUTHORIZATION) {
         if let Ok(auth_str) = auth_header.to_str() {
             if let Some(token) = auth_str.strip_prefix("Bearer ") {
@@ -100,4 +100,138 @@ fn extract_token(request: &Request) -> Result<String, AppError> {
     }
 
     Err(AppError::unauthorized("No token provided"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::Request;
+
+    #[test]
+    fn test_extract_token_bearer() {
+        let req = Request::builder()
+            .header(header::AUTHORIZATION, "Bearer my.jwt.token")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "my.jwt.token");
+    }
+
+    #[test]
+    fn test_extract_token_bearer_with_extra_prefix() {
+        let req = Request::builder()
+            .header(header::AUTHORIZATION, "Bearer  token-with-leading-space")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), " token-with-leading-space");
+    }
+
+    #[test]
+    fn test_extract_token_cookie() {
+        let req = Request::builder()
+            .header(header::COOKIE, "access_token=cookie-token-value; other=val")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "cookie-token-value");
+    }
+
+    #[test]
+    fn test_extract_token_cookie_without_bearer() {
+        let req = Request::builder()
+            .header(header::COOKIE, "session=abc; access_token=token-from-cookie; theme=dark")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "token-from-cookie");
+    }
+
+    #[test]
+    fn test_extract_token_prefers_bearer_over_cookie() {
+        let req = Request::builder()
+            .header(header::AUTHORIZATION, "Bearer bearer-token")
+            .header(header::COOKIE, "access_token=cookie-token")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "bearer-token");
+    }
+
+    #[test]
+    fn test_extract_token_missing_returns_error() {
+        let req = Request::builder()
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let result = extract_token(&req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().message, "No token provided");
+    }
+
+    #[test]
+    fn test_extract_token_missing_bearer_keyword() {
+        let req = Request::builder()
+            .header(header::AUTHORIZATION, "Basic base64creds")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let result = extract_token(&req);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_extract_token_cookie_with_no_access_token() {
+        let req = Request::builder()
+            .header(header::COOKIE, "session=abc; other=val")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert!(extract_token(&req).is_err());
+    }
+
+    #[test]
+    fn test_extract_token_empty_bearer_token() {
+        let req = Request::builder()
+            .header(header::AUTHORIZATION, "Bearer ")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "");
+    }
+
+    #[test]
+    fn test_extract_token_empty_cookie_value() {
+        let req = Request::builder()
+            .header(header::COOKIE, "access_token=")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "");
+    }
+
+    #[test]
+    fn test_extract_token_authorization_header_no_space() {
+        let req = Request::builder()
+            .header(header::AUTHORIZATION, "Bearernosuffix")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert!(extract_token(&req).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_auth_user_from_request_parts_missing() {
+        let (mut parts, _) = Request::new(axum::body::Body::empty()).into_parts();
+        let result = AuthUser::from_request_parts(&mut parts, &()).await;
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().message, "Missing auth context");
+    }
+
+    #[test]
+    fn test_extract_token_multiple_cookies() {
+        let req = Request::builder()
+            .header(header::COOKIE, "a=1; b=2; access_token=multi-cookie-val; c=3")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "multi-cookie-val");
+    }
+
+    #[test]
+    fn test_extract_token_bearer_with_spaces_around_token() {
+        let req = Request::builder()
+            .header(header::AUTHORIZATION, "Bearer   spaced-token   ")
+            .body(axum::body::Body::empty())
+            .unwrap();
+        assert_eq!(extract_token(&req).unwrap(), "  spaced-token   ");
+    }
 }
