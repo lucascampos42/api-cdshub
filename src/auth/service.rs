@@ -6,7 +6,7 @@ use crate::auth::jwt::{create_temp_2fa_token, create_token_pair, decode_token};
 use crate::auth::middleware::AuthUser;
 use crate::auth::sessions::{SessionResponse, SessionService};
 use crate::common::password::{hash_password, verify_password};
-use crate::common::types::UserType;
+use crate::common::types::{CompanyAccessMode, UserType};
 use crate::common::validation;
 use crate::config::Config;
 use crate::entities::{companies, user_companies};
@@ -158,12 +158,9 @@ impl AuthService {
         let user_type: UserType = auth.user_type.parse()
             .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
 
-        match user_type {
-            UserType::CodesdevsSuperadmin | UserType::CodesdevsSuporte => {}
-            UserType::RevendaAdmin
-            | UserType::RevendaSuporte
-            | UserType::RevendaGerente
-            | UserType::RevendaContador => {
+        match user_type.company_access_mode() {
+            CompanyAccessMode::Unrestricted => {}
+            CompanyAccessMode::RevendaBound => {
                 if let Some(revenda_id) = &auth.revenda_id {
                     let belongs = companies::Entity::find()
                         .filter(companies::Column::Id.eq(company_id))
@@ -179,7 +176,7 @@ impl AuthService {
                     return Err(AppError::forbidden("No revenda associated"));
                 }
             }
-            _ => {
+            CompanyAccessMode::ClientBound => {
                 let has_access = user_companies::Entity::find()
                     .filter(user_companies::Column::UserId.eq(&auth.user_id))
                     .filter(user_companies::Column::CompanyId.eq(company_id))
@@ -247,18 +244,15 @@ impl AuthService {
         let user_type: UserType = auth.user_type.parse()
             .map_err(|_| AppError::bad_request("Invalid user type in token"))?;
 
-        let companies = match user_type {
-            UserType::CodesdevsSuperadmin | UserType::CodesdevsSuporte => {
+        let companies = match user_type.company_access_mode() {
+            CompanyAccessMode::Unrestricted => {
                 companies::Entity::find()
                     .filter(companies::Column::Active.eq(true))
                     .order_by(companies::Column::Name, sea_orm::Order::Asc)
                     .all(&self.db)
                     .await?
             }
-            UserType::RevendaAdmin
-            | UserType::RevendaSuporte
-            | UserType::RevendaGerente
-            | UserType::RevendaContador => {
+            CompanyAccessMode::RevendaBound => {
                 if let Some(revenda_id) = &auth.revenda_id {
                     companies::Entity::find()
                         .filter(companies::Column::RevendaId.eq(revenda_id))
@@ -270,7 +264,7 @@ impl AuthService {
                     vec![]
                 }
             }
-            _ => {
+            CompanyAccessMode::ClientBound => {
                 companies::Entity::find()
                     .inner_join(user_companies::Entity)
                     .filter(user_companies::Column::UserId.eq(&auth.user_id))

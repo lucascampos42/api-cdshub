@@ -299,6 +299,85 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_access_token_rejected_as_refresh() {
+        let (jwt_secret, refresh_secret) = test_config();
+        let pair = create_token_pair(
+            "u1", "e@e.com", &UserType::RevendaAdmin, "admin",
+            None, None, None, None,
+            "s1", &jwt_secret, &refresh_secret, 1, 7,
+        ).unwrap();
+
+        // Decode access token with refresh secret should fail
+        let result = decode_token(&pair.access_token, &refresh_secret);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_tampered_token_fails() {
+        let (jwt_secret, _) = test_config();
+        let pair = create_token_pair(
+            "u1", "e@e.com", &UserType::RevendaAdmin, "admin",
+            None, None, None, None,
+            "s1", &jwt_secret, "irrelevant", 1, 7,
+        ).unwrap();
+
+        // Tamper the payload part of the JWT
+        let parts: Vec<&str> = pair.access_token.split('.').collect();
+        assert_eq!(parts.len(), 3);
+        // Replace payload with base64 of modified JSON
+        let tampered_payload = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            b"{\"sub\":\"hacker\"}",
+        );
+        let tampered = format!("{}.{}.{}", parts[0], tampered_payload, parts[2]);
+
+        let result = decode_token(&tampered, &jwt_secret);
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_algorithm_none_not_accepted() {
+        // Build a JWT with alg: none manually
+        let header = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            b"{\"alg\":\"none\",\"typ\":\"JWT\"}",
+        );
+        let payload = base64::Engine::encode(
+            &base64::engine::general_purpose::URL_SAFE_NO_PAD,
+            b"{\"sub\":\"u1\",\"token_type\":\"access\"}",
+        );
+        let none_token = format!("{}.{}.", header, payload);
+
+        let result = decode_token(&none_token, "any_secret");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_empty_token_fails() {
+        let result = decode_token("", "secret");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_malformed_jwt_fails() {
+        let result = decode_token("not-a-valid-jwt.at.all", "secret");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_only_two_parts_fails() {
+        let result = decode_token("header.payload", "secret");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_invalid_base64_fails() {
+        let token = "header!!!.payload!!!.signature!!!";
+        let result = decode_token(token, "secret");
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
     async fn test_round_trip_preserves_all_optional_fields() {
         let (jwt_secret, refresh_secret) = test_config();
         let pair = create_token_pair(

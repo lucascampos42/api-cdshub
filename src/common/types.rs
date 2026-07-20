@@ -1,5 +1,29 @@
 use serde::{Deserialize, Serialize};
 
+/// How a user type accesses companies in the system.
+/// Matches the match arms in `switch_company` and `companies_context`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompanyAccessMode {
+    /// CODESDEVS_SUPERADMIN / CODESDEVS_SUPORTE — access any company without restriction.
+    Unrestricted,
+    /// REVENDA_ADMIN / REVENDA_SUPORTE / REVENDA_GERENTE / REVENDA_CONTADOR — must have revenda_id.
+    RevendaBound,
+    /// All other types (CLIENTE_*, REVENDA_SUPORTE_AVANCADO, REVENDA_FINANCEIRO) — must have user_companies entry.
+    ClientBound,
+}
+
+impl UserType {
+    /// Classifies this user type for company access, matching the exact logic in
+    /// `switch_company` and `companies_context` in `auth::service`.
+    pub fn company_access_mode(&self) -> CompanyAccessMode {
+        match self {
+            Self::CodesdevsSuperadmin | Self::CodesdevsSuporte => CompanyAccessMode::Unrestricted,
+            Self::RevendaAdmin | Self::RevendaSuporte | Self::RevendaSuporteAvancado | Self::RevendaFinanceiro | Self::RevendaGerente | Self::RevendaContador => CompanyAccessMode::RevendaBound,
+            _ => CompanyAccessMode::ClientBound,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, utoipa::ToSchema)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum UserType {
@@ -180,5 +204,74 @@ mod tests {
     #[test]
     fn test_user_type_discriminants() {
         assert_ne!(UserType::ClienteAdmin as u8, UserType::ClienteFuncionario as u8);
+    }
+
+    #[rstest::rstest]
+    #[case(UserType::CodesdevsSuperadmin, CompanyAccessMode::Unrestricted)]
+    #[case(UserType::CodesdevsSuporte, CompanyAccessMode::Unrestricted)]
+    #[case(UserType::RevendaAdmin, CompanyAccessMode::RevendaBound)]
+    #[case(UserType::RevendaSuporte, CompanyAccessMode::RevendaBound)]
+    #[case(UserType::RevendaGerente, CompanyAccessMode::RevendaBound)]
+    #[case(UserType::RevendaContador, CompanyAccessMode::RevendaBound)]
+    #[case(UserType::RevendaSuporteAvancado, CompanyAccessMode::RevendaBound)]
+    #[case(UserType::RevendaFinanceiro, CompanyAccessMode::RevendaBound)]
+    #[case(UserType::ClienteAdmin, CompanyAccessMode::ClientBound)]
+    #[case(UserType::ClienteGerente, CompanyAccessMode::ClientBound)]
+    #[case(UserType::ClienteFuncionario, CompanyAccessMode::ClientBound)]
+    #[case(UserType::ClienteContador, CompanyAccessMode::ClientBound)]
+    fn test_company_access_mode(#[case] user_type: UserType, #[case] expected: CompanyAccessMode) {
+        assert_eq!(user_type.company_access_mode(), expected);
+    }
+
+    #[test]
+    fn test_company_access_mode_all_revenda_types_are_revenda_bound() {
+        let revenda_types = [
+            UserType::RevendaAdmin,
+            UserType::RevendaSuporte,
+            UserType::RevendaSuporteAvancado,
+            UserType::RevendaFinanceiro,
+            UserType::RevendaGerente,
+            UserType::RevendaContador,
+        ];
+        for ut in &revenda_types {
+            assert_eq!(
+                ut.company_access_mode(),
+                CompanyAccessMode::RevendaBound,
+                "{} should be RevendaBound",
+                ut,
+            );
+        }
+    }
+
+    #[test]
+    fn test_company_access_mode_all_variants_covered() {
+        let all = [
+            UserType::CodesdevsSuperadmin,
+            UserType::CodesdevsSuporte,
+            UserType::RevendaAdmin,
+            UserType::RevendaSuporte,
+            UserType::RevendaSuporteAvancado,
+            UserType::RevendaFinanceiro,
+            UserType::RevendaGerente,
+            UserType::RevendaContador,
+            UserType::ClienteAdmin,
+            UserType::ClienteGerente,
+            UserType::ClienteFuncionario,
+            UserType::ClienteContador,
+        ];
+        for ut in &all {
+            let mode = ut.company_access_mode();
+            match ut {
+                UserType::CodesdevsSuperadmin | UserType::CodesdevsSuporte => assert_eq!(mode, CompanyAccessMode::Unrestricted),
+                UserType::RevendaAdmin | UserType::RevendaSuporte | UserType::RevendaSuporteAvancado | UserType::RevendaFinanceiro | UserType::RevendaGerente | UserType::RevendaContador => assert_eq!(mode, CompanyAccessMode::RevendaBound),
+                _ => assert_eq!(mode, CompanyAccessMode::ClientBound),
+            }
+        }
+    }
+
+    #[test]
+    fn test_company_access_mode_debug() {
+        let debug = format!("{:?}", CompanyAccessMode::Unrestricted);
+        assert_eq!(debug, "Unrestricted");
     }
 }

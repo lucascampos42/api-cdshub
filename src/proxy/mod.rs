@@ -110,6 +110,20 @@ async fn forward_to_cdsgestor(
     Ok(response)
 }
 
+/// Builds the target URL for a revenda proxy request.
+/// Strips the `/api/revenda` prefix (path-segment-aware) from the path and preserves query parameters.
+/// Example: `/api/revenda/clientes?page=1` → `http://localhost:4243/clientes?page=1`
+/// Only matches `/api/revenda` as a full segment — `/api/revenda-other` is NOT rewritten.
+pub fn build_revenda_proxy_url(base_url: &str, path: &str, query: Option<&str>) -> String {
+    let qs = query.map(|q| format!("?{}", q)).unwrap_or_default();
+    let target_path = if path == "/api/revenda" || path.starts_with("/api/revenda/") {
+        &path["/api/revenda".len()..]
+    } else {
+        path
+    };
+    format!("{}{}{}", base_url, target_path, qs)
+}
+
 async fn forward_to_revenda(
     state: &AppState,
     auth: Option<&AuthUser>,
@@ -120,11 +134,9 @@ async fn forward_to_revenda(
 
     let uri = req.uri().clone();
     let path = uri.path();
-    let query = uri.query().map(|q| format!("?{}", q)).unwrap_or_default();
+    let query = uri.query();
 
-    // Rewrite /api/revenda/... -> /api/...
-    let target_path = path.strip_prefix("/api/revenda").unwrap_or(path);
-    let target_url = format!("{}{}{}", revenda_url, target_path, query);
+    let target_url = build_revenda_proxy_url(&revenda_url, path, query);
 
     let method = req.method().clone();
     let headers = req.headers().clone();
@@ -191,4 +203,115 @@ async fn forward_to_revenda(
         .map_err(|e| AppError::internal(format!("Failed to build response: {}", e)))?;
 
     Ok(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_revenda_proxy_url_rewrites_prefix() {
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/revenda/clientes",
+            None,
+        );
+        assert_eq!(url, "http://localhost:4243/clientes");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_preserves_query() {
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/revenda/tickets",
+            Some("page=1&limit=20"),
+        );
+        assert_eq!(url, "http://localhost:4243/tickets?page=1&limit=20");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_no_rewrite_without_prefix() {
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/health",
+            None,
+        );
+        assert_eq!(url, "http://localhost:4243/api/health");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_nested_path() {
+        let url = build_revenda_proxy_url(
+            "http://revenda:4243",
+            "/api/revenda/companies/123/users",
+            Some("active=true"),
+        );
+        assert_eq!(url, "http://revenda:4243/companies/123/users?active=true");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_root_path() {
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/revenda",
+            None,
+        );
+        assert_eq!(url, "http://localhost:4243");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_root_path_with_trailing_slash() {
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/revenda/",
+            None,
+        );
+        assert_eq!(url, "http://localhost:4243/");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_does_not_match_revenda_prefix_substring() {
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/revenda-other/route",
+            None,
+        );
+        assert_eq!(url, "http://localhost:4243/api/revenda-other/route");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_empty_query() {
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/revenda/logins",
+            Some(""),
+        );
+        assert_eq!(url, "http://localhost:4243/logins?");
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_custom_base_url() {
+        let url = build_revenda_proxy_url(
+            "https://api.revenda.example.com",
+            "/api/revenda/bot-config",
+            Some("token=abc"),
+        );
+        assert_eq!(
+            url,
+            "https://api.revenda.example.com/bot-config?token=abc"
+        );
+    }
+
+    #[test]
+    fn test_build_revenda_proxy_url_documentation_comment() {
+        // The doc comment says: /api/revenda/clientes?page=1 → http://localhost:4243/api/clientes?page=1
+        // But actual behavior strip_prefix removes /api/revenda entirely → /clientes
+        // This test documents the ACTUAL behavior (not the documented one)
+        let url = build_revenda_proxy_url(
+            "http://localhost:4243",
+            "/api/revenda/clientes",
+            Some("page=1"),
+        );
+        assert_eq!(url, "http://localhost:4243/clientes?page=1");
+    }
 }
