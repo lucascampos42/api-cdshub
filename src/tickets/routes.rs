@@ -3,6 +3,8 @@ use axum::http::StatusCode;
 use axum::Json;
 
 use crate::auth::middleware::AuthUser;
+use crate::auth::revenda_access::{ensure_resource_revenda, resolve_revenda_id};
+use crate::common::types::UserType;
 use crate::errors::AppError;
 use crate::rbac::model::Action;
 use crate::rbac::service::check_permission;
@@ -32,12 +34,20 @@ pub async fn list_tickets(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
+    let user_type: UserType = auth.user_type.parse()
+        .map_err(|_| AppError::bad_request("Invalid user type"))?;
+    let revenda_id = resolve_revenda_id(
+        &user_type,
+        auth.revenda_id.as_deref(),
+        params.get("revendaId").map(|s| s.as_str()),
+    )?;
+
     let service = TicketService::new(state.db.clone());
     let page = params.get("page").and_then(|p| p.parse::<u64>().ok()).unwrap_or(1);
     let limit = params.get("limit").and_then(|p| p.parse::<u64>().ok()).unwrap_or(20);
 
     let result = service.find_all(
-        params.get("revendaId").map(|s| s.as_str()),
+        revenda_id.as_deref(),
         params.get("companyId").map(|s| s.as_str()),
         params.get("status").map(|s| s.as_str()),
         params.get("priority").map(|s| s.as_str()),
@@ -64,8 +74,16 @@ pub async fn get_stats(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
+    let user_type: UserType = auth.user_type.parse()
+        .map_err(|_| AppError::bad_request("Invalid user type"))?;
+    let revenda_id = resolve_revenda_id(
+        &user_type,
+        auth.revenda_id.as_deref(),
+        params.get("revendaId").map(|s| s.as_str()),
+    )?;
+
     let service = TicketService::new(state.db.clone());
-    let stats = service.get_stats(params.get("revendaId").map(|s| s.as_str())).await?;
+    let stats = service.get_stats(revenda_id.as_deref()).await?;
 
     Ok(Json(serde_json::to_value(stats)?))
 }
@@ -91,6 +109,8 @@ pub async fn get_ticket(
 
     let service = TicketService::new(state.db.clone());
     let ticket = service.find_by_id(&id).await?;
+
+    ensure_resource_revenda(&auth, Some(&ticket.revenda_id))?;
 
     Ok(Json(serde_json::to_value(ticket)?))
 }
@@ -146,6 +166,9 @@ pub async fn update_ticket(
     check_permission(&state.db, &auth.user_type, Action::Update, "Ticket").await?;
 
     let service = TicketService::new(state.db.clone());
+    let existing = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, Some(&existing.revenda_id))?;
+
     let ticket = service.update(&id, request).await?;
 
     Ok(Json(serde_json::to_value(ticket)?))
@@ -171,6 +194,9 @@ pub async fn delete_ticket(
     check_permission(&state.db, &auth.user_type, Action::Delete, "Ticket").await?;
 
     let service = TicketService::new(state.db.clone());
+    let existing = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, Some(&existing.revenda_id))?;
+
     service.delete(&id).await?;
 
     Ok(StatusCode::OK)
@@ -198,6 +224,9 @@ pub async fn add_action(
     check_permission(&state.db, &auth.user_type, Action::Update, "Ticket").await?;
 
     let service = TicketService::new(state.db.clone());
+    let ticket = service.find_by_id(&ticket_id).await?;
+    ensure_resource_revenda(&auth, Some(&ticket.revenda_id))?;
+
     let action = service.add_action(&ticket_id, &auth.user_id, &request.content).await?;
 
     Ok((
@@ -225,6 +254,9 @@ pub async fn get_actions(
     check_permission(&state.db, &auth.user_type, Action::Read, "Ticket").await?;
 
     let service = TicketService::new(state.db.clone());
+    let ticket = service.find_by_id(&ticket_id).await?;
+    ensure_resource_revenda(&auth, Some(&ticket.revenda_id))?;
+
     let actions = service.get_actions(&ticket_id).await?;
 
     Ok(Json(serde_json::to_value(actions)?))

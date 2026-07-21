@@ -4,6 +4,8 @@ use axum::Json;
 use serde::Deserialize;
 
 use crate::auth::middleware::AuthUser;
+use crate::auth::revenda_access::{ensure_resource_revenda, resolve_revenda_id};
+use crate::common::types::UserType;
 use crate::errors::AppError;
 use crate::rbac::model::Action;
 use crate::rbac::service::check_permission;
@@ -60,12 +62,19 @@ pub async fn list_companies(
 ) -> Result<Json<serde_json::Value>, AppError> {
     check_permission(&state.db, &auth.user_type, Action::Read, "Company").await?;
 
+    let user_type: UserType = auth.user_type.parse()
+        .map_err(|_| AppError::bad_request("Invalid user type"))?;
+    let revenda_id = resolve_revenda_id(
+        &user_type,
+        auth.revenda_id.as_deref(),
+        params.get("revendaId").map(|s| s.as_str()),
+    )?;
+
     let service = CompanyService::new(state.db.clone());
-    let revenda_id = params.get("revendaId").map(|s| s.as_str());
     let page = params.get("page").and_then(|p| p.parse::<u64>().ok()).unwrap_or(1);
     let limit = params.get("limit").and_then(|p| p.parse::<u64>().ok()).unwrap_or(20);
 
-    let result = service.find_all(revenda_id, page, limit).await?;
+    let result = service.find_all(revenda_id.as_deref(), page, limit).await?;
 
     Ok(Json(serde_json::to_value(result)?))
 }
@@ -91,6 +100,7 @@ pub async fn get_company(
 
     let service = CompanyService::new(state.db.clone());
     let company = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, company.revenda_id.as_deref())?;
 
     Ok(Json(serde_json::to_value(company)?))
 }
@@ -117,6 +127,9 @@ pub async fn update_company(
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
+    let existing = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, existing.revenda_id.as_deref())?;
+
     let company = service.update(&id, request).await?;
 
     Ok(Json(serde_json::to_value(company)?))
@@ -142,6 +155,9 @@ pub async fn delete_company(
     check_permission(&state.db, &auth.user_type, Action::Delete, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
+    let existing = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, existing.revenda_id.as_deref())?;
+
     service.soft_delete(&id).await?;
 
     Ok(StatusCode::OK)
@@ -167,6 +183,9 @@ pub async fn enable_demo(
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
+    let existing = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, existing.revenda_id.as_deref())?;
+
     let company = service.set_demo_mode(&id, true).await?;
 
     Ok(Json(serde_json::to_value(company)?))
@@ -192,6 +211,9 @@ pub async fn disable_demo(
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
+    let existing = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, existing.revenda_id.as_deref())?;
+
     let company = service.set_demo_mode(&id, false).await?;
 
     Ok(Json(serde_json::to_value(company)?))
@@ -219,6 +241,9 @@ pub async fn update_company_revenda(
     check_permission(&state.db, &auth.user_type, Action::Update, "Company").await?;
 
     let service = CompanyService::new(state.db.clone());
+    let existing = service.find_by_id(&id).await?;
+    ensure_resource_revenda(&auth, existing.revenda_id.as_deref())?;
+
     let company = service.update_revenda(&id, payload.revenda_id).await?;
 
     Ok(Json(serde_json::to_value(company)?))

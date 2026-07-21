@@ -49,9 +49,14 @@ async fn main() {
 
     let cors = CorsLayer::new()
         .allow_origin([
+            "http://localhost:4200".parse().unwrap(),
             "http://localhost:4240".parse().unwrap(),
             "http://localhost:4241".parse().unwrap(),
             "http://localhost:4242".parse().unwrap(),
+            "http://127.0.0.1:4200".parse().unwrap(),
+            "http://127.0.0.1:4240".parse().unwrap(),
+            "http://127.0.0.1:4241".parse().unwrap(),
+            "http://127.0.0.1:4242".parse().unwrap(),
             "https://codesdevs.com.br".parse().unwrap(),
             "https://cdsgestor.codesdevs.com.br".parse().unwrap(),
         ])
